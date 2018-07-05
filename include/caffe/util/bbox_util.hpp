@@ -206,6 +206,7 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
     vector<vector<int> >* all_neg_indices,
 	const Dtype* arm_conf_data);
 
+
 // Retrieve bounding box ground truth from gt_data.
 //    gt_data: 1 x 1 x num_gt x 7 blob.
 //    num_gt: the number of ground truth.
@@ -363,6 +364,25 @@ void EncodeConfPrediction(const Dtype* conf_data, const int num,
       const vector<vector<int> >& all_neg_indices,
       const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
       Dtype* conf_pred_data, Dtype* conf_gt_data);
+// Encode the confidence of pose predictions and ground truth for each matched prior.
+//    pose_data: num x num_priors * num_classes blob.
+//    num: number of images.
+//    num_priors: number of priors (predictions) per image.
+//    multibox_loss_param: stores the parameters for MultiBoxLossLayer.
+//    all_match_indices: stores mapping between predictions and ground truth.
+//    all_neg_indices: stores the indices for negative samples.
+//    all_gt_bboxes: stores ground truth bboxes for the batch.
+//    pose_pred_data: stores the confidence prediction results.
+//    pose_gt_data: stores the confidence ground truth.
+
+template <typename Dtype>
+void EncodePosePrediction(const Dtype* pose_data, const int num,
+      const int num_priors, const MultiBoxLossParameter& multibox_loss_param,
+      const vector<map<int, vector<int> > >& all_match_indices,
+      const vector<vector<int> >& all_neg_indices,
+      const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+      Dtype* pose_pred_data, Dtype* pose_gt_data);
+
 
 // Get prior bounding boxes from prior_data.
 //    prior_data: 1 x 2 x num_priors * 4 x 1 blob.
@@ -506,9 +526,22 @@ void DecodeBBoxesGPU(const int nthreads,
           const bool clip_bbox, Dtype* bbox_data);
 
 template <typename Dtype>
+void CasRegDecodeBBoxesGPU(const int nthreads,
+          const Dtype* loc_data, const Dtype* prior_data,
+          const CodeType code_type, const bool variance_encoded_in_target,
+          const int num_priors, const bool share_location,
+          const int num_loc_classes, const int background_label_id,
+          const bool clip_bbox, Dtype* bbox_data, const Dtype* arm_loc_data);
+
+template <typename Dtype>
 void PermuteDataGPU(const int nthreads,
           const Dtype* data, const int num_classes, const int num_data,
           const int num_dim, Dtype* new_data);
+
+template <typename Dtype>
+void OSPermuteDataGPU(const int nthreads,
+          const Dtype* data, const Dtype* arm_data, const int num_classes, const int num_data,
+          const int num_dim, Dtype* new_data, float objectness_score);
 
 template <typename Dtype>
 void SoftMaxGPU(const Dtype* data, const int outer_num, const int channels,
@@ -550,7 +583,7 @@ template <typename Dtype>
 void VisualizeBBox(const vector<cv::Mat>& images, const Blob<Dtype>* detections,
                    const float threshold, const vector<cv::Scalar>& colors,
                    const map<int, string>& label_to_display_name,
-                   const string& save_file);
+                   const string& save_file,string source_="",string root_folder_="",bool save_txt_=false,bool save_draw_img_=false,string save_draw_img_dir_="");
 #endif  // USE_OPENCV
 
 }  // namespace caffe

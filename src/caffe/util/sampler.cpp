@@ -13,6 +13,7 @@ void GroupObjectBBoxes(const AnnotatedDatum& anno_datum,
     const AnnotationGroup& anno_group = anno_datum.annotation_group(i);
     for (int j = 0; j < anno_group.annotation_size(); ++j) {
       const Annotation& anno = anno_group.annotation(j);
+      //LOG(INFO) << anno.bbox().pose() << anno.bbox().xmin();
       object_bboxes->push_back(anno.bbox());
     }
   }

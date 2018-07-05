@@ -1,5 +1,7 @@
 #ifdef USE_OPENCV
 #include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #endif  // USE_OPENCV
 #include <stdint.h>
 
@@ -28,6 +30,7 @@ AnnotatedDataLayer<Dtype>::~AnnotatedDataLayer() {
 template <typename Dtype>
 void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
+  //LOG(INFO) << "At least we start to setup";
   const int batch_size = this->layer_param_.data_param().batch_size();
   const AnnotatedDataParameter& anno_data_param =
       this->layer_param_.annotated_data_param();
@@ -35,6 +38,8 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
     batch_samplers_.push_back(anno_data_param.batch_sampler(i));
   }
   label_map_file_ = anno_data_param.label_map_file();
+  savebatchimg_ = anno_data_param.savebatchimg();
+  savebatchimgdir_ = anno_data_param.savebatchimgdir();
   // Make sure dimension is consistent within batch.
   const TransformationParameter& transform_param =
     this->layer_param_.transform_param();
@@ -45,17 +50,18 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
         << "Only support batch size of 1 for FIT_SMALL_SIZE.";
     }
   }
-
   // Read a data point, and use it to initialize the top blob.
   AnnotatedDatum& anno_datum = *(reader_.full().peek());
-
   // Use data_transformer to infer the expected blob shape from anno_datum.
+  LOG(INFO) << "1";
   vector<int> top_shape =
       this->data_transformer_->InferBlobShape(anno_datum.datum());
+  LOG(INFO) << "2";
   this->transformed_data_.Reshape(top_shape);
   // Reshape top[0] and prefetch_data according to the batch_size.
   top_shape[0] = batch_size;
   top[0]->Reshape(top_shape);
+  LOG(INFO) << "3";
   for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
     this->prefetch_[i].data_.Reshape(top_shape);
   }
@@ -93,7 +99,7 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
         // cpu_data and gpu_data for consistent prefetch thread. Thus we make
         // sure there is at least one bbox.
         label_shape[2] = std::max(num_bboxes, 1);
-        label_shape[3] = 8;
+        label_shape[3] = 9;
       } else {
         LOG(FATAL) << "Unknown annotation type.";
       }
@@ -104,9 +110,10 @@ void AnnotatedDataLayer<Dtype>::DataLayerSetUp(
     for (int i = 0; i < this->PREFETCH_COUNT; ++i) {
       this->prefetch_[i].label_.Reshape(label_shape);
     }
+    // std::cout<<"layer setup good";
   }
 }
-
+int BatchIter=0;
 // This function is called on prefetch thread
 template<typename Dtype>
 void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
@@ -265,12 +272,12 @@ void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     if (anno_type_ == AnnotatedDatum_AnnotationType_BBOX) {
       label_shape[0] = 1;
       label_shape[1] = 1;
-      label_shape[3] = 8;
+      label_shape[3] = 9;
       if (num_bboxes == 0) {
         // Store all -1 in the label.
         label_shape[2] = 1;
         batch->label_.Reshape(label_shape);
-        caffe_set<Dtype>(8, -1, batch->label_.mutable_cpu_data());
+        caffe_set<Dtype>(9, -1, batch->label_.mutable_cpu_data());
       } else {
         // Reshape the label and store the annotation.
         label_shape[2] = num_bboxes;
@@ -282,6 +289,7 @@ void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
           for (int g = 0; g < anno_vec.size(); ++g) {
             const AnnotationGroup& anno_group = anno_vec[g];
             for (int a = 0; a < anno_group.annotation_size(); ++a) {
+                  CHECK_NE(0, anno_group.group_label()) << "Found background label in the dataset.";
               const Annotation& anno = anno_group.annotation(a);
               const NormalizedBBox& bbox = anno.bbox();
               top_label[idx++] = item_id;
@@ -292,13 +300,64 @@ void AnnotatedDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
               top_label[idx++] = bbox.xmax();
               top_label[idx++] = bbox.ymax();
               top_label[idx++] = bbox.difficult();
+              top_label[idx++] = bbox.pose();
             }
           }
         }
+        //LOG(INFO) << "top label good";
       }
     } else {
       LOG(FATAL) << "Unknown annotation type.";
     }
+   }
+   if(savebatchimg_)
+  {
+   //debug input data and save the imgs draw with bbox
+   //convert to Mat
+   vector<cv::Mat> cv_imgs;
+  // LOG(INFO)<<"batch: "<<batch->data_.shape(0)<<"channel: "<<batch->data_.shape(1)<<"width: "<<batch->data_.shape(2)<<"height: "<<batch->data_.shape(3);
+   this->data_transformer_->TransformInv(&(batch->data_), &cv_imgs);
+  // LOG(INFO) <<"cv_imgs size: "<<cv_imgs.size();
+   //draw bbox
+   if(num_bboxes>0)
+   {
+     int fontface = cv::FONT_HERSHEY_SIMPLEX;
+     double scale = 1;
+     int thickness = 2;
+     int baseline = 0;
+     char buffer[50];
+     const Dtype* const_top_label = batch->label_.cpu_data();
+     for(int iter=0;iter<batch->label_.count()/9;iter++)
+     {
+      const Dtype* tmp = const_top_label+iter*9;
+      int item_id=tmp[0];
+      int width=cv_imgs[item_id].cols;
+      int height=cv_imgs[item_id].rows;
+      cv::Point top_left_pt(width*tmp[3], height*tmp[4]);
+      cv::Point bottom_right_pt(width*tmp[5], height*tmp[6]);
+      cv::rectangle(cv_imgs[item_id], top_left_pt, bottom_right_pt, CV_RGB(0, 255, 0), 4);
+      cv::Point bottom_left_pt(width*tmp[3], height*tmp[6]);
+      snprintf(buffer, sizeof(buffer), "%d", int(tmp[1]));
+      cv::Size text = cv::getTextSize(buffer, fontface, scale, thickness,
+                                        &baseline);
+      //cv::rectangle(
+      //      cv_imgs[item_id], bottom_left_pt + cv::Point(0, 0),
+      //      bottom_left_pt + cv::Point(text.width, -text.height-baseline),
+      //      CV_RGB(0, 255, 0), CV_FILLED);
+      cv::putText(cv_imgs[item_id], buffer, bottom_left_pt - cv::Point(0, baseline),
+                    fontface, scale, CV_RGB(0, 0, 0), thickness, 2); 
+     }
+ 
+   }
+   //save the draw training imgs
+   char buffer[200];
+   for(int iter=0;iter<cv_imgs.size();iter++)
+   {
+    snprintf(buffer,sizeof(buffer),"%s%d_%d.jpg",savebatchimgdir_.c_str(),BatchIter,iter);
+   // LOG(INFO)<<"result:"<<buffer;
+    cv::imwrite(buffer,cv_imgs.at(iter));
+   }
+  BatchIter++;
   }
   timer.Stop();
   batch_timer.Stop();

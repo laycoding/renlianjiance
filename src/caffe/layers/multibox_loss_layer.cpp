@@ -21,18 +21,27 @@ void MultiBoxLossLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   const MultiBoxLossParameter& multibox_loss_param =
       this->layer_param_.multibox_loss_param();
   multibox_loss_param_ = this->layer_param_.multibox_loss_param();
-
+  visualize_ = multibox_loss_param_.visualize();
+  if(visualize_) {
+    data_transformer_.reset(
+        new DataTransformer<Dtype>(this->layer_param_.transform_param(),
+                                   this->phase_));
+    data_transformer_->InitRand();
+  }
   num_ = bottom[0]->num();
   num_priors_ = bottom[2]->height() / 4;
   // Get other parameters.
   CHECK(multibox_loss_param.has_num_classes()) << "Must provide num_classes.";
   num_classes_ = multibox_loss_param.num_classes();
   CHECK_GE(num_classes_, 1) << "num_classes should not be less than 1.";
+  aspect_classes_ = 4;
+  CHECK_EQ(aspect_classes_, 4) << "aspect_classes_ should be 4";
   share_location_ = multibox_loss_param.share_location();
   loc_classes_ = share_location_ ? 1 : num_classes_;
   background_label_id_ = multibox_loss_param.background_label_id();
   use_difficult_gt_ = multibox_loss_param.use_difficult_gt();
   mining_type_ = multibox_loss_param.mining_type();
+  code_type_ = multibox_loss_param.code_type();
   if (multibox_loss_param.has_do_neg_mining()) {
     LOG(WARNING) << "do_neg_mining is deprecated, use mining_type instead.";
     do_neg_mining_ = multibox_loss_param.do_neg_mining();
@@ -56,6 +65,51 @@ void MultiBoxLossLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   }
 
   vector<int> loss_shape(1, 1);
+  //new for pose
+  pose_weight_ = multibox_loss_param.pose_weight();   // loc weight 1.0
+  pose_loss_type_ = multibox_loss_param.pose_loss_type();  // loss 类型  SMOOTH_L1
+  // fake shape.
+  pose_bottom_vec_.push_back(&pose_pred_); // 存放前面的指针
+  pose_bottom_vec_.push_back(&pose_gt_);   // 存放gt的指针
+  pose_loss_.Reshape(loss_shape);         // location的loss [1,4]
+  pose_top_vec_.push_back(&pose_loss_);    // 存放top的指针
+  if (pose_loss_type_ == MultiBoxLossParameter_ConfLossType_SOFTMAX) {
+    CHECK_GE(background_label_id_, 0)
+        << "background_label_id should be within [0, num_classes) for Softmax.";
+    CHECK_LT(background_label_id_, num_classes_)
+        << "background_label_id should be within [0, num_classes) for Softmax.";
+    LayerParameter layer_param;
+    layer_param.set_name(this->layer_param_.name() + "_softmax_pose");  // mbox_loss_softmax_pose
+    layer_param.set_type("SoftmaxWithLoss");
+    layer_param.add_loss_weight(pose_weight_);                             // 1.0
+    layer_param.mutable_loss_param()->set_normalization(
+        LossParameter_NormalizationMode_NONE);  
+    SoftmaxParameter* softmax_param = layer_param.mutable_softmax_param();
+    softmax_param->set_axis(1);
+    // Fake reshape.
+    vector<int> pose_shape(1, 1);
+    pose_gt_.Reshape(pose_shape);        // [1]
+    pose_shape.push_back(num_classes_);  // 这两个参数没有用到
+    pose_pred_.Reshape(pose_shape);
+    pose_loss_layer_ = LayerRegistry<Dtype>::CreateLayer(layer_param);
+    pose_loss_layer_->SetUp(pose_bottom_vec_, pose_top_vec_);
+  } else if (pose_loss_type_ == MultiBoxLossParameter_ConfLossType_LOGISTIC) {
+    LayerParameter layer_param;
+    layer_param.set_name(this->layer_param_.name() + "_logistic_conf");
+    layer_param.set_type("SigmoidCrossEntropyLoss");
+    layer_param.add_loss_weight(pose_weight_);
+    // Fake reshape.
+    vector<int> pose_shape(1, 1);
+    pose_shape.push_back(num_classes_);
+    pose_gt_.Reshape(pose_shape);
+    pose_pred_.Reshape(pose_shape);
+    pose_loss_layer_ = LayerRegistry<Dtype>::CreateLayer(layer_param);
+    pose_loss_layer_->SetUp(pose_bottom_vec_, pose_top_vec_);
+  } else {
+    LOG(FATAL) << "Unknown pose loss type or no pose loss(sence for arm)";
+  }
+ 
+
   // Set up localization loss layer.
   loc_weight_ = multibox_loss_param.loc_weight();
   loc_loss_type_ = multibox_loss_param.loc_loss_type();
@@ -151,9 +205,11 @@ void MultiBoxLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   const Dtype* gt_data = bottom[3]->cpu_data();
   const Dtype* arm_conf_data = NULL;
   const Dtype* arm_loc_data = NULL;
+  const Dtype* pose_data = NULL;
   vector<LabelBBox> all_arm_loc_preds;
   if (bottom.size() >= 5) {
 	arm_conf_data = bottom[4]->cpu_data();
+  pose_data = bottom[6]->cpu_data();
   }
   if (bottom.size() >= 6) {
 	arm_loc_data = bottom[5]->cpu_data();
@@ -190,12 +246,18 @@ void MultiBoxLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
   num_matches_ = 0;
   int num_negs = 0;
-  // Sample hard negative (and positive) examples based on mining type.
+  vector<cv::Mat> cv_imgs;
+  if (visualize_) {
+    this->data_transformer_->TransformInv(bottom[6], &cv_imgs);
+   }
+//     MineHardExamples(*bottom[1], all_loc_preds, all_arm_loc_preds,all_gt_bboxes, prior_bboxes,
+//                    prior_variances, all_match_overlaps, multibox_loss_param_,
+//                    &num_matches_, &num_negs, &all_match_indices_,
+//                    &all_neg_indices_, arm_conf_data,visualize_,&cv_imgs);
   MineHardExamples(*bottom[1], all_loc_preds, all_gt_bboxes, prior_bboxes,
                    prior_variances, all_match_overlaps, multibox_loss_param_,
                    &num_matches_, &num_negs, &all_match_indices_,
                    &all_neg_indices_, arm_conf_data);
-
   if (num_matches_ >= 1) {
     // Form data to pass on to loc_loss_layer_.
     vector<int> loc_shape(2);
@@ -262,6 +324,53 @@ void MultiBoxLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     conf_loss_.mutable_cpu_data()[0] = 0;
   }
 
+  // Form data to pass on to pose_loss_layer_.
+  /*if (do_neg_mining_) {
+    num_pose_ = num_matches_ + num_negs;
+  } else {
+    num_pose_ = num_ * num_priors_;
+  }//*/ 
+  //we dont do negative mining in pose prediction
+  //num_pose_ = num_ * num_priors_;
+  num_pose_ = num_matches_;
+  // only do pose prediction in odm
+  if (num_pose_ >= 1 && bottom.size() >= 7) {
+    // Reshape the pose data.
+    vector<int> pose_shape;
+    if (pose_loss_type_ == MultiBoxLossParameter_ConfLossType_SOFTMAX) {
+      pose_shape.push_back(num_pose_);
+      pose_gt_.Reshape(pose_shape);
+      pose_shape.push_back(aspect_classes_);
+      pose_pred_.Reshape(pose_shape);
+    } else if (pose_loss_type_ == MultiBoxLossParameter_ConfLossType_LOGISTIC) {
+      pose_shape.push_back(1);
+      pose_shape.push_back(num_pose_);
+      pose_shape.push_back(aspect_classes_);
+      pose_gt_.Reshape(pose_shape);
+      pose_pred_.Reshape(pose_shape);
+    } else {
+      LOG(FATAL) << "Unknown pose loss type.";
+    }
+    // because we dont do pose prediction in arm
+    /*if (!do_neg_mining_) {
+      // Consider all scores.
+      // Share data and diff with bottom[1].
+      CHECK_EQ(conf_pred_.count(), bottom[1]->count());
+      pose_pred_.ShareData(*(bottom[1]));
+    }//*/
+    Dtype* pose_pred_data = pose_pred_.mutable_cpu_data();
+    Dtype* pose_gt_data = pose_gt_.mutable_cpu_data();
+    caffe_set(pose_gt_.count(), Dtype(background_label_id_), pose_gt_data);
+    EncodePosePrediction(pose_data, num_, num_priors_, multibox_loss_param_,
+                         all_match_indices_, all_neg_indices_, all_gt_bboxes,
+                         pose_pred_data, pose_gt_data);
+    pose_loss_layer_->Reshape(pose_bottom_vec_, pose_top_vec_);
+    pose_loss_layer_->Forward(pose_bottom_vec_, pose_top_vec_);
+  } else {
+    pose_loss_.mutable_cpu_data()[0] = 0;
+  }
+
+
   top[0]->mutable_cpu_data()[0] = 0;
   if (this->layer_param_.propagate_down(0)) {
     Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
@@ -273,6 +382,11 @@ void MultiBoxLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
         normalization_, num_, num_priors_, num_matches_);
     top[0]->mutable_cpu_data()[0] += conf_loss_.cpu_data()[0] / normalizer;
+  }
+  if (this->layer_param_.propagate_down(6)) {
+    Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+        normalization_, num_, num_priors_, num_matches_);
+    top[0]->mutable_cpu_data()[0] += pose_loss_.cpu_data()[0] / normalizer;
   }
 }
 
@@ -364,6 +478,7 @@ void MultiBoxLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
                 continue;
               }
               // Copy the diff to the right place.
+              // LOG(INFO) << "copy conf diff";
               caffe_copy<Dtype>(num_classes_,
                                 conf_pred_diff + count * num_classes_,
                                 conf_bottom_diff + j * num_classes_);
@@ -379,6 +494,7 @@ void MultiBoxLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
                               conf_bottom_diff + j * num_classes_);
             ++count;
           }
+          // LOG(INFO) << "shift conf point";
           conf_bottom_diff += bottom[1]->offset(1);
         }
       } else {
@@ -387,7 +503,81 @@ void MultiBoxLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
       }
     }
   }
+  //LOG(INFO) << "loc conf bp lg";
 
+//   // Back propagate on pose prediction.
+//   if (propagate_down[6]) {
+//     Dtype* pose_bottom_diff = bottom[6]->mutable_cpu_diff();
+//     caffe_set(bottom[6]->count(), Dtype(0), pose_bottom_diff);
+//     if (num_pose_ >= 1) {
+//       vector<bool> pose_propagate_down;
+//       // Only back propagate on prediction, not ground truth.
+//       pose_propagate_down.push_back(true);
+//       pose_propagate_down.push_back(false);
+//       LOG(INFO) << "pose bp start";  
+//       pose_loss_layer_->Backward(pose_top_vec_, pose_propagate_down,
+//                                  pose_bottom_vec_);
+//       LOG(INFO) << "pose bp over, next scale";  
+//       // Scale gradient.
+//       Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+//           normalization_, num_, num_priors_, num_matches_);
+//       Dtype loss_weight = top[0]->cpu_diff()[0] / normalizer;
+//       caffe_scal(pose_pred_.count(), loss_weight,
+//                  pose_pred_.mutable_cpu_diff());
+//       LOG(INFO) << "pose bp scale down, next copy diff"; 
+//       // Copy gradient back to bottom[1].
+//       // const Dtype* pose_pred_diff = pose_pred_.cpu_diff();
+
+//       // The diff is already computed and stored.
+//       LOG(INFO) << pose_pred_.count(); 
+//       LOG(INFO) << bottom[6]->num();
+//       bottom[6]->ShareDiff(pose_pred_);
+//     }
+//   }
+  // Back propagate on pose prediction.
+  if (bottom.size() >= 7 && propagate_down[6]) {
+    Dtype* pose_bottom_diff = bottom[6]->mutable_cpu_diff();
+    caffe_set(bottom[6]->count(), Dtype(0), pose_bottom_diff);
+    if (num_pose_ >= 1) {
+      vector<bool> pose_propagate_down;
+      // Only back propagate on prediction, not ground truth.
+      pose_propagate_down.push_back(true);
+      pose_propagate_down.push_back(false);
+      pose_loss_layer_->Backward(pose_top_vec_, pose_propagate_down,
+                                 pose_bottom_vec_);
+      // Scale gradient.
+      Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+          normalization_, num_, num_priors_, num_matches_);
+      Dtype loss_weight = top[0]->cpu_diff()[0] / normalizer;
+      caffe_scal(pose_pred_.count(), loss_weight,
+                 pose_pred_.mutable_cpu_diff());
+      // Copy gradient back to bottom[1].
+      const Dtype* pose_pred_diff = pose_pred_.cpu_diff();
+      int count = 0;
+      for (int i = 0; i < num_; ++i) {
+        // Copy matched (positive) bboxes scores' diff.
+        const map<int, vector<int> >& match_indices = all_match_indices_[i];
+        for (map<int, vector<int> >::const_iterator it =
+             match_indices.begin(); it != match_indices.end(); ++it) {
+          const vector<int>& match_index = it->second;
+          CHECK_EQ(match_index.size(), num_priors_);
+          for (int j = 0; j < num_priors_; ++j) {
+            if (match_index[j] <= -1) {
+              continue;
+            }
+            // Copy the diff to the right place.
+            caffe_copy<Dtype>(aspect_classes_,
+                              pose_pred_diff + count * aspect_classes_,
+                              pose_bottom_diff + j * aspect_classes_);
+            ++count;
+          }
+        }
+        pose_bottom_diff += bottom[6]->offset(1);
+      }
+    }
+  }
+
+  //LOG(INFO) << "pose bp lg";
   // After backward, remove match statistics.
   all_match_indices_.clear();
   all_neg_indices_.clear();

@@ -7,11 +7,12 @@
 #include <string>
 #include <utility>
 #include <vector>
-
+#include <stdio.h>
 #include "boost/iterator/counting_iterator.hpp"
 
 #include "caffe/util/bbox_util.hpp"
-
+#include<algorithm>
+using namespace std;
 namespace caffe {
 
 bool SortBBoxAscend(const NormalizedBBox& bbox1, const NormalizedBBox& bbox2) {
@@ -994,6 +995,8 @@ inline bool IsEligibleMining(const MiningType mining_type, const int match_idx,
   }
 }
 
+int bgiters=0;
+int thiscount=0;
 template <typename Dtype>
 void MineHardExamples(const Blob<Dtype>& conf_blob,
     const vector<LabelBBox>& all_loc_preds,
@@ -1210,14 +1213,16 @@ template void MineHardExamples(const Blob<double>& conf_blob,
     vector<map<int, vector<int> > >* all_match_indices,
     vector<vector<int> >* all_neg_indices,
 	const double* arm_conf_data);
-
+    
+    
+    
 template <typename Dtype>
 void GetGroundTruth(const Dtype* gt_data, const int num_gt,
       const int background_label_id, const bool use_difficult_gt, const int num_classes_,
       map<int, vector<NormalizedBBox> >* all_gt_bboxes) {
   all_gt_bboxes->clear();
   for (int i = 0; i < num_gt; ++i) {
-    int start_idx = i * 8;
+    int start_idx = i * 9;
     int item_id = gt_data[start_idx];
     if (item_id == -1) {
       continue;
@@ -1229,6 +1234,7 @@ void GetGroundTruth(const Dtype* gt_data, const int num_gt,
     CHECK_NE(background_label_id, label)
         << "Found background label in the dataset.";
     bool difficult = static_cast<bool>(gt_data[start_idx + 7]);
+    int pose = static_cast<int>(gt_data[start_idx + 8]);
     if (!use_difficult_gt && difficult) {
       // Skip reading difficult ground truth.
       continue;
@@ -1240,6 +1246,7 @@ void GetGroundTruth(const Dtype* gt_data, const int num_gt,
     bbox.set_xmax(gt_data[start_idx + 5]);
     bbox.set_ymax(gt_data[start_idx + 6]);
     bbox.set_difficult(difficult);
+    bbox.set_pose(pose);
     float bbox_size = BBoxSize(bbox);
     bbox.set_size(bbox_size);
     (*all_gt_bboxes)[item_id].push_back(bbox);
@@ -1260,7 +1267,7 @@ void GetGroundTruth(const Dtype* gt_data, const int num_gt,
       map<int, LabelBBox>* all_gt_bboxes) {
   all_gt_bboxes->clear();
   for (int i = 0; i < num_gt; ++i) {
-    int start_idx = i * 8;
+    int start_idx = i * 9;
     int item_id = gt_data[start_idx];
     if (item_id == -1) {
       break;
@@ -1273,6 +1280,7 @@ void GetGroundTruth(const Dtype* gt_data, const int num_gt,
     CHECK_NE(background_label_id, label)
         << "Found background label in the dataset.";
     bool difficult = static_cast<bool>(gt_data[start_idx + 7]);
+    int pose = static_cast<int>(gt_data[start_idx + 8]);
     if (!use_difficult_gt && difficult) {
       // Skip reading difficult ground truth.
       continue;
@@ -1282,6 +1290,7 @@ void GetGroundTruth(const Dtype* gt_data, const int num_gt,
     bbox.set_xmax(gt_data[start_idx + 5]);
     bbox.set_ymax(gt_data[start_idx + 6]);
     bbox.set_difficult(difficult);
+    bbox.set_pose(pose);
     float bbox_size = BBoxSize(bbox);
     bbox.set_size(bbox_size);
     (*all_gt_bboxes)[item_id][label].push_back(bbox);
@@ -1952,6 +1961,31 @@ void EncodeConfPrediction(const Dtype* conf_data, const int num,
           ++count;
         }
       }
+    }else {
+      // Go to next image.
+      if (do_neg_mining) {
+        // Save negative bboxes scores and labels.
+        for (int n = 0; n < all_neg_indices[i].size(); ++n) {
+          int j = all_neg_indices[i][n];
+          CHECK_LT(j, num_priors);
+          caffe_copy<Dtype>(num_classes, conf_data + j * num_classes,
+              conf_pred_data + count * num_classes);
+          switch (conf_loss_type) {
+            case MultiBoxLossParameter_ConfLossType_SOFTMAX:
+              conf_gt_data[count] = background_label_id;
+              break;
+            case MultiBoxLossParameter_ConfLossType_LOGISTIC:
+              if (background_label_id >= 0 &&
+                  background_label_id < num_classes) {
+                conf_gt_data[count * num_classes + background_label_id] = 1;
+              }
+              break;
+            default:
+              LOG(FATAL) << "Unknown conf loss type.";
+          }
+          ++count;
+        }
+      }
     }
     if (do_neg_mining) {
       conf_data += num_priors * num_classes;
@@ -1974,6 +2008,74 @@ template void EncodeConfPrediction(const double* conf_data, const int num,
       const vector<vector<int> >& all_neg_indices,
       const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
       double* conf_pred_data, double* conf_gt_data);
+
+//new for pose
+template <typename Dtype>
+void EncodePosePrediction(const Dtype* pose_data, const int num,
+      const int num_priors, const MultiBoxLossParameter& multibox_loss_param,
+      const vector<map<int, vector<int> > >& all_match_indices,
+      const vector<vector<int> >& all_neg_indices,
+      const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+      Dtype* pose_pred_data, Dtype* pose_gt_data) {
+
+  const int aspect_classes = 4;
+
+  const MiningType mining_type = multibox_loss_param.mining_type();
+  bool do_neg_mining;
+  do_neg_mining = false;
+  // we dont do negative mining in pose prediction
+  //do_neg_mining = mining_type != MultiBoxLossParameter_MiningType_NONE;
+  const ConfLossType pose_loss_type = multibox_loss_param.pose_loss_type();
+  int count = 0;
+  for (int i = 0; i < num; ++i) {
+    if (all_gt_bboxes.find(i) != all_gt_bboxes.end()) {
+      // Save matched (positive) bboxes scores and labels.
+      const map<int, vector<int> >& match_indices = all_match_indices[i];
+      for (map<int, vector<int> >::const_iterator it =
+          match_indices.begin(); it != match_indices.end(); ++it) {
+        const vector<int>& match_index = it->second;
+        CHECK_EQ(match_index.size(), num_priors);
+        for (int j = 0; j < num_priors; ++j) {
+          if (match_index[j] <= -1) {
+            continue;
+          }
+          const int gt_label = all_gt_bboxes.find(i)->second[match_index[j]].pose();
+          int idx = do_neg_mining ? j : count;
+          switch (pose_loss_type) {
+            case MultiBoxLossParameter_ConfLossType_SOFTMAX:
+              pose_gt_data[idx] = gt_label;
+              break;
+            case MultiBoxLossParameter_ConfLossType_LOGISTIC:
+              pose_gt_data[idx * aspect_classes + gt_label] = 1;
+              break;
+            default:
+              LOG(FATAL) << "Unknown pose loss type.";
+          }
+          // Copy scores for matched bboxes.
+          caffe_copy<Dtype>(aspect_classes, pose_data + j * aspect_classes,
+              pose_pred_data + count * aspect_classes);
+          ++count;
+        }
+      }
+    }
+    pose_data += num_priors * aspect_classes;
+  }
+}
+
+// Explicite initialization.
+template void EncodePosePrediction(const float* pose_data, const int num,
+      const int num_priors, const MultiBoxLossParameter& multibox_loss_param,
+      const vector<map<int, vector<int> > >& all_match_indices,
+      const vector<vector<int> >& all_neg_indices,
+      const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+      float* pose_pred_data, float* pose_gt_data);
+template void EncodePosePrediction(const double* pose_data, const int num,
+      const int num_priors, const MultiBoxLossParameter& multibox_loss_param,
+      const vector<map<int, vector<int> > >& all_match_indices,
+      const vector<vector<int> >& all_neg_indices,
+      const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+      double* pose_pred_data, double* pose_gt_data);
+
 
 template <typename Dtype>
 void GetPriorBBoxes(const Dtype* prior_data, const int num_priors,
@@ -2456,12 +2558,12 @@ vector<cv::Scalar> GetColors(const int n) {
 
 static clock_t start_clock = clock();
 static cv::VideoWriter cap_out;
-
+int count=0;
 template <typename Dtype>
 void VisualizeBBox(const vector<cv::Mat>& images, const Blob<Dtype>* detections,
                    const float threshold, const vector<cv::Scalar>& colors,
                    const map<int, string>& label_to_display_name,
-                   const string& save_file) {
+                   const string& save_file,string source,string root_folder,bool save_txt,bool save_draw_img,string save_dir) {
   // Retrieve detections.
   CHECK_EQ(detections->width(), 7);
   const int num_det = detections->height();
@@ -2500,58 +2602,217 @@ void VisualizeBBox(const vector<cv::Mat>& images, const Blob<Dtype>* detections,
   int baseline = 0;
   char buffer[50];
   for (int i = 0; i < num_img; ++i) {
+    bool detectedObject=false;
     cv::Mat image = images[i];
     // Show FPS.
     snprintf(buffer, sizeof(buffer), "FPS: %.2f", fps);
     cv::Size text = cv::getTextSize(buffer, fontface, scale, thickness,
                                     &baseline);
-    cv::rectangle(image, cv::Point(0, 0),
+    /*cv::rectangle(image, cv::Point(0, 0),
                   cv::Point(text.width, text.height + baseline),
                   CV_RGB(255, 255, 255), CV_FILLED);
     cv::putText(image, buffer, cv::Point(0, text.height + baseline / 2.),
                 fontface, scale, CV_RGB(0, 0, 0), thickness, 8);
-    // Draw bboxes.
+                */
+    /*********************************************************/
+    /*
+    //生成供MTCNN用的正样本负样本，及对对应的人脸框。
     for (map<int, vector<NormalizedBBox> >::iterator it =
-         all_detections[i].begin(); it != all_detections[i].end(); ++it) {
+                     all_detections[i].begin(); it != all_detections[i].end(); ++it)
+    {
+        int label = it->first;
+        string label_name = "Unknown";
+        if (label_to_display_name.find(label) != label_to_display_name.end()) {
+            label_name = label_to_display_name.find(label)->second;
+        }
+        if(save_txt)
+        {
+          std::ifstream infile(source.c_str());
+          string line;
+          size_t pos;
+          int label;
+          vector<std::pair<std::string, int> > lines_;
+          while (std::getline(infile, line))
+          {
+              pos = line.find_last_of(' ');
+              label = atoi(line.substr(pos + 1).c_str());
+              lines_.push_back(std::make_pair(line.substr(0, pos), label));
+          }
+
+          string imgname=lines_[count].first;
+          cv::Mat testimg=cv::imread(root_folder+lines_[count].first);
+          cv::Mat showimg=testimg.clone();
+          int testimgWidth=testimg.cols;
+          int testimgHeight=testimg.rows;
+          //LOG(INFO)<<fileName1;
+          CHECK_LT(label, colors.size());
+          const cv::Scalar& color = colors[label];
+          const vector<NormalizedBBox>& bboxes = it->second;
+          if(bboxes.size()>0) detectedObject=true;
+          for (int j = 0; j < bboxes.size(); ++j)
+          {
+            cv::Point top_left_pt(bboxes[j].xmin(), bboxes[j].ymin());
+            cv::Point bottom_right_pt(bboxes[j].xmax(), bboxes[j].ymax());
+            //cv::rectangle(image, top_left_pt, bottom_right_pt, color, 4);
+
+            int topx=min(max(0,cvRound(float(bboxes[j].xmin())/width*testimgWidth)),testimgWidth-1);
+            int topy=min(max(0,cvRound(float(bboxes[j].ymin())/height*testimgHeight)),testimgHeight-1);
+            int facewidth=cvRound(float(bboxes[j].xmax()-bboxes[j].xmin())/width*testimgWidth);
+            int faceheight=cvRound(float(bboxes[j].ymax()-bboxes[j].ymin())/height*testimgHeight);
+            if(topx+facewidth>=testimgWidth-1)
+              facewidth = testimgWidth-topx;
+            if(topy+faceheight>=testimgHeight-1)
+              faceheight=testimgHeight-topy;
+
+            if(facewidth>=24&&faceheight>=24)
+            {
+                char fileName1[1000];
+                sprintf(fileName1, "%s%s_%d.txt",save_dir.c_str(),lines_[count].first.substr(0,imgname.length()-4).c_str(),j);
+                FILE* fid=fopen(fileName1,"w");
+                fprintf(fid,"%s\n",imgname.c_str(),j);
+                fprintf(fid,"%d,%d,%d,%d,%f\n",topx,topy,facewidth,faceheight,bboxes[j].score());
+                fclose(fid);
+                cv::Rect rectroi(topx,topy,facewidth,faceheight);
+                cv::Mat copface=testimg(rectroi);
+                cv::Mat resizeface;
+                cv::resize(copface,resizeface,cv::Size(48,48),0,0,cv::INTER_CUBIC);
+                sprintf(fileName1, "%s%s_%d.jpg",save_dir.c_str(),lines_[count].first.substr(0,imgname.length()-4).c_str(),j+1);
+                cv::imwrite(fileName1,resizeface);
+                cv::rectangle(showimg, cv::Point(topx,topy), cv::Point(topx+facewidth,topy+faceheight), color, 4);
+            }
+          }
+          if(save_draw_img)
+          {
+            char fileName2[1000];
+            sprintf(fileName2, "%s%s_0.jpg",save_dir.c_str(),lines_[count].first.substr(0,imgname.length()-4).c_str());
+            //LOG(INFO)<<fileName2<<" "<<showimg.rows<<" "<<showimg.cols;
+            cv::imwrite(fileName2,showimg);
+            //sprintf(fileName2, "%s%s_ori.jpg",save_dir.c_str(),lines_[count].first.substr(0,imgname.length()-4).c_str());
+            //cv::imwrite(fileName2,image);
+          }
+
+        }
+    }
+    count++;
+    */
+    /*********************************************************/
+    // 选择保存WIDERFACE的每张测试图的结果TXT，同时可选择保存结果图。
+    for (map<int, vector<NormalizedBBox> >::iterator it =
+         all_detections[i].begin(); it != all_detections[i].end(); ++it)
+    {
       int label = it->first;
       string label_name = "Unknown";
       if (label_to_display_name.find(label) != label_to_display_name.end()) {
         label_name = label_to_display_name.find(label)->second;
       }
-      CHECK_LT(label, colors.size());
-      const cv::Scalar& color = colors[label];
-      const vector<NormalizedBBox>& bboxes = it->second;
-      for (int j = 0; j < bboxes.size(); ++j) {
-        cv::Point top_left_pt(bboxes[j].xmin(), bboxes[j].ymin());
-        cv::Point bottom_right_pt(bboxes[j].xmax(), bboxes[j].ymax());
-        cv::rectangle(image, top_left_pt, bottom_right_pt, color, 4);
-        cv::Point bottom_left_pt(bboxes[j].xmin(), bboxes[j].ymax());
-        snprintf(buffer, sizeof(buffer), "%s: %.2f", label_name.c_str(),
-                 bboxes[j].score());
-        cv::Size text = cv::getTextSize(buffer, fontface, scale, thickness,
+      if(save_txt)
+      {
+        std::ifstream infile(source.c_str());
+        string line;
+        size_t pos;
+        int label;
+        vector<std::pair<std::string, int> > lines_;
+        while (std::getline(infile, line))
+        {
+          pos = line.find_last_of(' ');
+          label = atoi(line.substr(pos + 1).c_str());
+          lines_.push_back(std::make_pair(line.substr(0, pos), label));
+        }
+        char fileName1[1000];
+        string imgname=lines_[count].first;
+        sprintf(fileName1, "%s%stxt",save_dir.c_str(),lines_[count].first.substr(0,imgname.length()-4).c_str());
+        cv::Mat testimg=cv::imread(root_folder+lines_[count].first);
+        int testimgWidth=testimg.cols;
+        int testimgHeight=testimg.rows;
+        //LOG(INFO)<<fileName1;
+        CHECK_LT(label, colors.size());
+        FILE* fid=NULL;//=fopen(fileName1,"w");
+        const cv::Scalar& color = colors[label];
+        const vector<NormalizedBBox>& bboxes = it->second;
+        if(bboxes.size()>0) detectedObject=true;
+        for (int j = 0; j < bboxes.size(); ++j)
+        {
+            if(j==0)
+            {
+               fid=fopen(fileName1,"w");
+               //if(fid==NULL)
+               fprintf(fid,"%s\n",imgname.c_str());
+               fprintf(fid,"%d\n",bboxes.size());
+            }
+            fprintf(fid,"%d,%d,%d,%d,%f\n",cvRound(bboxes[j].xmin()/width*testimgWidth),cvRound(bboxes[j].ymin()/height*testimgHeight),cvRound((bboxes[j].xmax()-bboxes[j].xmin())/width*testimgWidth),cvRound((bboxes[j].ymax()-bboxes[j].ymin())/height*testimgHeight),bboxes[j].score());
+
+            cv::Point top_left_pt(bboxes[j].xmin(), bboxes[j].ymin());
+            cv::Point bottom_right_pt(bboxes[j].xmax(), bboxes[j].ymax());
+            cv::rectangle(image, top_left_pt, bottom_right_pt, color, 4);
+            cv::Point bottom_left_pt(bboxes[j].xmin(), bboxes[j].ymax());
+            snprintf(buffer, sizeof(buffer), "%.2f", bboxes[j].score());
+            cv::Size text = cv::getTextSize(buffer, fontface, scale, thickness,
                                         &baseline);
-        cv::rectangle(
-            image, bottom_left_pt + cv::Point(0, 0),
-            bottom_left_pt + cv::Point(text.width, -text.height-baseline),
-            color, CV_FILLED);
-        cv::putText(image, buffer, bottom_left_pt - cv::Point(0, baseline),
-                    fontface, scale, CV_RGB(0, 0, 0), thickness, 8);
-      }
-    }
-    // Save result if required.
-    if (!save_file.empty()) {
-      if (!cap_out.isOpened()) {
+            cv::rectangle(
+                 image, bottom_left_pt + cv::Point(0, 0),
+                 bottom_left_pt + cv::Point(text.width, -text.height-baseline),
+                 color, CV_FILLED);
+            cv::putText(image, buffer, bottom_left_pt - cv::Point(0, baseline),
+                      fontface, scale, CV_RGB(0, 0, 0), thickness, 4);
+        }
+        if(fid!=NULL)
+          fclose(fid);
+      }else
+      if(!save_file.empty())
+      {//保存视频
+        CHECK_LT(label, colors.size());
+        const cv::Scalar& color = colors[label];
+        const vector<NormalizedBBox>& bboxes = it->second;
+        if(bboxes.size()>0) detectedObject=true;
+        int idx=0;
+        int lefttestx=image.size().width;
+        for (int j = 0; j < bboxes.size(); ++j)
+        {
+          cv::Point top_left_pt(std::max(0.f,bboxes[j].xmin()), std::max(0.f,bboxes[j].ymin()));
+          cv::Point bottom_right_pt(std::min(float(width-1),bboxes[j].xmax()), std::min(float(height-1),bboxes[j].ymax()));
+          cv::Rect rect(top_left_pt.x,top_left_pt.y,bottom_right_pt.x-top_left_pt.x,bottom_right_pt.y-top_left_pt.y);
+          cv::Mat copface=image(rect);
+          char fileName1[1000];
+          sprintf(fileName1, "%s/%d_%d.jpg",save_file.substr(0,save_file.length()-4).c_str(),count+1,j+1);
+          char fileName2[1000];
+          sprintf(fileName2, "%s/%d_%d.txt",save_file.substr(0,save_file.length()-4).c_str(),count+1,j+1);
+          FILE* fid=fopen(fileName2,"w");
+          fprintf(fid,"%f,%f,%f,%f,%f\n",bboxes[j].xmin()/width,bboxes[j].ymin()/height,(bboxes[j].xmax()-bboxes[j].xmin())/width,(bboxes[j].ymax()-bboxes[j].ymin())/height,bboxes[j].score());
+          fclose(fid);
+          //LOG(INFO)<<fileName1;
+          cv::imwrite(fileName1,copface);
+          cv::rectangle(image, top_left_pt, bottom_right_pt, color, 4);
+       }
+       if (!cap_out.isOpened()) {
         cv::Size size(image.size().width, image.size().height);
         cv::VideoWriter outputVideo(save_file, CV_FOURCC('D', 'I', 'V', 'X'),
             30, size, true);
         cap_out = outputVideo;
       }
       cap_out.write(image);
+     }
+
     }
-    cv::imshow("detections", image);
-    if (cv::waitKey(1) == 27) {
-      raise(SIGINT);
+
+	  if(save_draw_img&&detectedObject)
+    {
+        std::ifstream infile(source.c_str());
+        string line;
+        size_t pos;
+        int label;
+	      vector<std::pair<std::string, int> > lines_;
+        while (std::getline(infile, line))
+        {
+          pos = line.find_last_of(' ');
+	        label = atoi(line.substr(pos + 1).c_str());
+          lines_.push_back(std::make_pair(line.substr(0, pos), label));
+        }
+	      char fileName1[1000];
+        sprintf(fileName1, "%s%s",save_dir.c_str(),lines_[count].first.c_str());
+	      cv::imwrite(fileName1,image);
     }
+    count++;
+    /*********************************************************/
   }
   start_clock = clock();
 }
@@ -2561,13 +2822,13 @@ void VisualizeBBox(const vector<cv::Mat>& images,
                    const Blob<float>* detections,
                    const float threshold, const vector<cv::Scalar>& colors,
                    const map<int, string>& label_to_display_name,
-                   const string& save_file);
+                   const string& save_file,string source,string root_folder,bool save_txt,bool save_draw_img,string save_draw_img_dir);
 template
 void VisualizeBBox(const vector<cv::Mat>& images,
                    const Blob<double>* detections,
                    const float threshold, const vector<cv::Scalar>& colors,
                    const map<int, string>& label_to_display_name,
-                   const string& save_file);
+                   const string& save_file,string source,string root_folder,bool save_txt,bool save_draw_img,string save_draw_img_dir);
 
 #endif  // USE_OPENCV
 
