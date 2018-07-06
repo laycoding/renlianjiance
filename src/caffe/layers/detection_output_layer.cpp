@@ -405,24 +405,24 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
         continue;
       }
       const vector<float>& scores = conf_scores.find(label)->second;
+
       int loc_label = share_location_ ? -1 : label;
       if (decode_bboxes.find(loc_label) == decode_bboxes.end()) {
         // Something bad happened if there are no predictions for current label.
         LOG(FATAL) << "Could not find location predictions for " << loc_label;
         continue;
       }
+      const vector<NormalizedBBox>& bboxes = decode_bboxes.find(loc_label)->second;
+
       //need to change*******************************************************
-      int pose_label = it->first;
-      const vector<float>& pose_scores = pose_scores.find(label)->second;
       int pose_label = share_location_ ? -1 : label;
       if (pose_scores.find(pose_label) == pose_scores.end()) {
         // Something bad happened if there are no predictions for current label.
         LOG(FATAL) << "Could not find confidence predictions for " << label;
         continue;
       }
+      const vector<float>& pose_scores = pose_scores.find(pose_label)->second;
 
-      const vector<NormalizedBBox>& bboxes =
-          decode_bboxes.find(loc_label)->second;
       vector<int>& indices = it->second;
       if (need_save_) {
         CHECK(label_to_name_.find(label) != label_to_name_.end())
