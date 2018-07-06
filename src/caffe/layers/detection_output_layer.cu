@@ -64,7 +64,6 @@ void DetectionOutputLayer<Dtype>::Forward_gpu(
     PermuteDataGPU<Dtype>(bottom[1]->count(), bottom[1]->gpu_data(),
         num_classes_, num_priors_, 1, conf_permute_data);
   }
-  const Dtype* conf_cpu_data = conf_permute_.cpu_data();
 
   //
   // Retrieve all pose confidences.
@@ -87,7 +86,7 @@ void DetectionOutputLayer<Dtype>::Forward_gpu(
     map<int, vector<int> > indices;
     int num_det = 0;
     const int conf_idx = i * num_classes_ * num_priors_;
-    const int pose_idx = i * aspect_classes * num_priors_;
+    const int pose_idx = i * aspect_classes_ * num_priors_;
     int bbox_idx;
     if (share_location_) {
       bbox_idx = i * num_priors_ * 4;
@@ -165,7 +164,7 @@ void DetectionOutputLayer<Dtype>::Forward_gpu(
   boost::filesystem::path output_directory(output_directory_);
   for (int i = 0; i < num; ++i) {
     const int conf_idx = i * num_classes_ * num_priors_;
-    const int pose_idx = i * aspect_classes_ * num_priors;
+    const int pose_idx = i * aspect_classes_ * num_priors_;
     int bbox_idx;
     if (share_location_) {
       bbox_idx = i * num_priors_ * 4;
