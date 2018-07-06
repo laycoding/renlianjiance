@@ -245,6 +245,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   const Dtype* loc_data = bottom[0]->cpu_data();
   const Dtype* conf_data = bottom[1]->cpu_data();
   const Dtype* prior_data = bottom[2]->cpu_data();
+  const Dtype* pose_data = bottom[6]->cpu_data();	
   const Dtype* arm_conf_data = NULL;
   const Dtype* arm_loc_data = NULL;
   const int num = bottom[0]->num();
