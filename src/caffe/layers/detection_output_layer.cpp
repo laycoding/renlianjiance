@@ -20,6 +20,7 @@ void DetectionOutputLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   CHECK(detection_output_param.has_num_classes()) << "Must specify num_classes";
   objectness_score_ = detection_output_param.objectness_score();
   num_classes_ = detection_output_param.num_classes();
+  aspect_classes_ = 4;
   share_location_ = detection_output_param.share_location();
   num_loc_classes_ = share_location_ ? 1 : num_classes_;
   background_label_id_ = detection_output_param.background_label_id();
@@ -27,6 +28,11 @@ void DetectionOutputLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   variance_encoded_in_target_ =
       detection_output_param.variance_encoded_in_target();
   keep_top_k_ = detection_output_param.keep_top_k();
+  source_ = detection_output_param.source();
+  root_folder_ =detection_output_param.root_folder();
+  save_txt_ =detection_output_param.save_txt();
+  save_draw_img_ = detection_output_param.save_draw_img();
+  save_dir_=detection_output_param.save_dir();
   confidence_threshold_ = detection_output_param.has_confidence_threshold() ?
       detection_output_param.confidence_threshold() : -FLT_MAX;
   // Parameters used in nms.
@@ -123,6 +129,7 @@ void DetectionOutputLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     bbox_permute_.ReshapeLike(*(bottom[0]));
   }
   conf_permute_.ReshapeLike(*(bottom[1]));
+  pose_permute_.ReshapeLike(*(bottom[6]));
 }
 
 template <typename Dtype>
@@ -161,25 +168,80 @@ void DetectionOutputLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
       conf_permute_.count(1) != bottom[1]->count(1)) {
     conf_permute_.ReshapeLike(*(bottom[1]));
   }
+  if (pose_permute_.num() != bottom[6]->num() ||
+      pose_permute_.count(1) != bottom[6]->count(1)) {
+    pose_permute_.ReshapeLike(*(bottom[6]));
+  }
   num_priors_ = bottom[2]->height() / 4;
   CHECK_EQ(num_priors_ * num_loc_classes_ * 4, bottom[0]->channels())
       << "Number of priors must match number of location predictions.";
   CHECK_EQ(num_priors_ * num_classes_, bottom[1]->channels())
       << "Number of priors must match number of confidence predictions.";
+  CHECK_EQ(num_priors_ * aspect_classes_, bottom[6]->channels())
+      << "Number of priors must match number of confidence predictions.";
+
   // num() and channels() are 1.
   vector<int> top_shape(2, 1);
   // Since the number of bboxes to be kept is unknown before nms, we manually
   // set it to (fake) 1.
   top_shape.push_back(1);
-  // Each row is a 7 dimension vector, which stores
-  // [image_id, label, confidence, xmin, ymin, xmax, ymax]
-  top_shape.push_back(7);
+  // Each row is a 8 dimension vector, which stores
+  // [image_id, label, confidence, xmin, ymin, xmax, ymax, pose]
+  top_shape.push_back(8);
   top[0]->Reshape(top_shape);
 }
 
 template <typename Dtype>
 void DetectionOutputLayer<Dtype>::Forward_cpu(
-    const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
+    const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top)
+     {
+       /*
+       string det_odm_loc = "/workspace/run/test/Det_odm_loc_cpu.txt";
+       string det_odm_conf = "/workspace/run/test/Det_odm_conf_cpu.txt";
+       string det_arm_prior= "/workspace/run/test/Det_arm_prior_cpu.txt";
+       string det_arm_conf = "/workspace/run/test/Det_arm_conf_cpu.txt";
+       string det_arm_loc  = "/workspace/run/test/Det_arm_loc_cpu.txt";
+
+       FILE* fid=fopen(det_odm_loc.c_str(),"w");
+       const Dtype* tmp=bottom[0]->cpu_data();
+       for(int ii=0;ii<bottom[0]->count();ii++)
+       {
+         fprintf(fid,"%.3f ",tmp[ii]);
+       }
+       fclose(fid);
+
+       fid=fopen(det_odm_conf.c_str(),"w");
+       tmp=bottom[1]->cpu_data();
+       for(int ii=0;ii<bottom[1]->count();ii++)
+       {
+         fprintf(fid,"%.3f ",tmp[ii]);
+       }
+       fclose(fid);
+
+       fid=fopen(det_arm_prior.c_str(),"w");
+       tmp=bottom[2]->cpu_data();
+       for(int ii=0;ii<bottom[2]->count();ii++)
+       {
+         fprintf(fid,"%.3f ",tmp[ii]);
+       }
+       fclose(fid);
+
+       fid=fopen(det_arm_conf.c_str(),"w");
+       tmp=bottom[3]->cpu_data();
+       for(int ii=0;ii<bottom[3]->count();ii++)
+       {
+         fprintf(fid,"%.3f ",tmp[ii]);
+       }
+       fclose(fid);
+
+       fid=fopen(det_arm_loc.c_str(),"w");
+       tmp=bottom[4]->cpu_data();
+       for(int ii=0;ii<bottom[4]->count();ii++)
+       {
+         fprintf(fid,"%.3f ",tmp[ii]);
+       }
+       fclose(fid);
+  */
   const Dtype* loc_data = bottom[0]->cpu_data();
   const Dtype* conf_data = bottom[1]->cpu_data();
   const Dtype* prior_data = bottom[2]->cpu_data();
@@ -212,6 +274,12 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
                         &all_conf_scores);
   }
 
+  // Retrieve all pose confidences.
+  vector<map<int, vector<float> > > all_pose_scores;
+  GetPoseConfidenceScores(pose_data, num, num_priors_, num_loc_classes_,
+                        share_location_, &all_pose_scores);
+  
+
   // Retrieve all prior bboxes. It is same within a batch since we assume all
   // images in a batch are of same dimension.
   vector<NormalizedBBox> prior_bboxes;
@@ -239,6 +307,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   for (int i = 0; i < num; ++i) {
     const LabelBBox& decode_bboxes = all_decode_bboxes[i];
     const map<int, vector<float> >& conf_scores = all_conf_scores[i];
+    const map<int, vector<float> >& pose_scores = all_pose_scores[i];   
     map<int, vector<int> > indices;
     int num_det = 0;
     for (int c = 0; c < num_classes_; ++c) {
@@ -302,7 +371,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
 
   vector<int> top_shape(2, 1);
   top_shape.push_back(num_kept);
-  top_shape.push_back(7);
+  top_shape.push_back(8);
   Dtype* top_data;
   if (num_kept == 0) {
     LOG(INFO) << "Couldn't find any detections";
@@ -313,7 +382,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
     // Generate fake results per image.
     for (int i = 0; i < num; ++i) {
       top_data[0] = i;
-      top_data += 7;
+      top_data += 8;
     }
   } else {
     top[0]->Reshape(top_shape);
@@ -324,6 +393,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   boost::filesystem::path output_directory(output_directory_);
   for (int i = 0; i < num; ++i) {
     const map<int, vector<float> >& conf_scores = all_conf_scores[i];
+
     const LabelBBox& decode_bboxes = all_decode_bboxes[i];
     for (map<int, vector<int> >::iterator it = all_indices[i].begin();
          it != all_indices[i].end(); ++it) {
@@ -340,6 +410,16 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
         LOG(FATAL) << "Could not find location predictions for " << loc_label;
         continue;
       }
+      //need to change*******************************************************
+      int pose_label = it->first;
+      const vector<float>& pose_scores = pose_scores.find(label)->second;
+      int pose_label = share_location_ ? -1 : label;
+      if (pose_scores.find(pose_label) == pose_scores.end()) {
+        // Something bad happened if there are no predictions for current label.
+        LOG(FATAL) << "Could not find confidence predictions for " << label;
+        continue;
+      }
+
       const vector<NormalizedBBox>& bboxes =
           decode_bboxes.find(loc_label)->second;
       vector<int>& indices = it->second;
@@ -350,19 +430,21 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
       }
       for (int j = 0; j < indices.size(); ++j) {
         int idx = indices[j];
-        top_data[count * 7] = i;
-        top_data[count * 7 + 1] = label;
-        top_data[count * 7 + 2] = scores[idx];
+        top_data[count * 8] = i;
+        top_data[count * 8 + 1] = label;
+        top_data[count * 8 + 2] = scores[idx];
         const NormalizedBBox& bbox = bboxes[idx];
-        top_data[count * 7 + 3] = bbox.xmin();
-        top_data[count * 7 + 4] = bbox.ymin();
-        top_data[count * 7 + 5] = bbox.xmax();
-        top_data[count * 7 + 6] = bbox.ymax();
+        top_data[count * 8 + 3] = bbox.xmin();
+        top_data[count * 8 + 4] = bbox.ymin();
+        top_data[count * 8 + 5] = bbox.xmax();
+        top_data[count * 8 + 6] = bbox.ymax();
+        top_data[count * 8 + 7] = pose_scores[idx];
+
         if (need_save_) {
           NormalizedBBox out_bbox;
           OutputBBox(bbox, sizes_[name_count_], has_resize_, resize_param_,
                      &out_bbox);
-          float score = top_data[count * 7 + 2];
+          float score = top_data[count * 8 + 2];
           float xmin = out_bbox.xmin();
           float ymin = out_bbox.ymin();
           float xmax = out_bbox.xmax();
@@ -484,14 +566,24 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   }
   if (visualize_) {
 #ifdef USE_OPENCV
-    vector<cv::Mat> cv_imgs;
-    this->data_transformer_->TransformInv(bottom[3], &cv_imgs);
-    vector<cv::Scalar> colors = GetColors(label_to_display_name_.size());
-    VisualizeBBox(cv_imgs, top[0], visualize_threshold_, colors,
-        label_to_display_name_, save_file_);
+     vector<cv::Mat> cv_imgs;
+     this->data_transformer_->TransformInv(bottom[5], &cv_imgs);
+     vector<cv::Scalar> colors;// = GetColors(label_to_display_name_.size());
+     colors.push_back(cv::Scalar(255,0,0));
+     colors.push_back(cv::Scalar(0,255,0));
+     colors.push_back(cv::Scalar(0,0,255));
+     colors.push_back(cv::Scalar(255,255,0));
+     colors.push_back(cv::Scalar(255,0,255));
+     colors.push_back(cv::Scalar(0,255,255));
+      VisualizeBBox(cv_imgs, top[0], visualize_threshold_, colors,
+        label_to_display_name_, save_file_,source_,root_folder_,save_txt_,save_draw_img_,save_dir_);
 #endif  // USE_OPENCV
   }
 }
+
+#ifdef CPU_ONLY
+STUB_GPU_FORWARD(DetectionOutputLayer, Forward);
+#endif
 
 INSTANTIATE_CLASS(DetectionOutputLayer);
 REGISTER_LAYER_CLASS(DetectionOutput);

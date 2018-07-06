@@ -294,6 +294,11 @@ void GetConfidenceScores(const Dtype* conf_data, const int num,
       vector<map<int, vector<float> > >* conf_scores);
 
 template <typename Dtype>
+void GetPoseConfidenceScores(const Dtype* conf_data, const int num,
+      const int num_preds_per_class, const int num_loc_classes,
+      const bool share_location, vector<map<int, vector<float> > >* pose_preds);
+
+template <typename Dtype>
 void OSGetConfidenceScores(const Dtype* conf_data, const Dtype* arm_conf_data,
 	  const int num, const int num_preds_per_class, const int num_classes,
       vector<map<int, vector<float> > >* conf_scores, float objectness_score);

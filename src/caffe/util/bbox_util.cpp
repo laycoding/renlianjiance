@@ -1646,6 +1646,37 @@ template void GetConfidenceScores(const double* conf_data, const int num,
       const int num_preds_per_class, const int num_classes,
       vector<map<int, vector<float> > >* conf_preds);
 
+//pose_confidence
+template <typename Dtype>
+void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
+      const int num_preds_per_class, const int num_loc_classes,
+      const bool share_location, vector<map<int, vector<float> > >* pose_preds) {
+  pose_preds->clear();
+  pose_preds->resize(num);
+  for (int i = 0; i < num; ++i) {
+    map<int, vector<float> >& label_scores = (*pose_preds)[i];
+    for (int p = 0; p < num_preds_per_class; ++p) {
+      int start_idx = p * num_loc_classes * 4;
+      for (int c = 0; c < num_loc_classes; ++c) {
+        int label = share_location ? -1 : c;        
+        label_scores[label].push_back(pose_data[start_idx + c]);
+      }
+    }   
+    pose_data += num_preds_per_class * num_loc_classes * 4;
+  }
+}
+
+// Explicit initialization.
+template void GetPoseConfidenceScores(const float* pose_data, const int num,
+      const int num_preds_per_class, const int num_loc_classes,
+      const bool share_location, vector<map<int, vector<float> > >* pose_preds);
+template void GetPoseConfidenceScores(const double* conf_data, const int num,
+      const int num_preds_per_class, const int num_loc_classes,
+      const bool share_location, vector<map<int, vector<float> > >* pose_preds);
+
+
+//
+
 template <typename Dtype>
 void OSGetConfidenceScores(const Dtype* conf_data,
 	  const Dtype* arm_conf_data, const int num,
