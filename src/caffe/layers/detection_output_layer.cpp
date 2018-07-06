@@ -308,7 +308,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   for (int i = 0; i < num; ++i) {
     const LabelBBox& decode_bboxes = all_decode_bboxes[i];
     const map<int, vector<float> >& conf_scores = all_conf_scores[i];
-    const map<int, vector<float> >& pose_scores = all_pose_scores[i];   
+    // const map<int, vector<float> >& pose_scores = all_pose_scores[i];   
     map<int, vector<int> > indices;
     int num_det = 0;
     for (int c = 0; c < num_classes_; ++c) {
@@ -421,7 +421,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
         LOG(FATAL) << "Could not find confidence predictions for " << label;
         continue;
       }
-      const vector<float>& pose_scores = pose_scores.find(pose_label)->second;
+      const vector<float>& pose_scores4oneclass = pose_scores.find(pose_label)->second;
 
       vector<int>& indices = it->second;
       if (need_save_) {
@@ -439,7 +439,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
         top_data[count * 8 + 4] = bbox.ymin();
         top_data[count * 8 + 5] = bbox.xmax();
         top_data[count * 8 + 6] = bbox.ymax();
-        top_data[count * 8 + 7] = pose_scores[idx];
+        top_data[count * 8 + 7] = pose_scores4oneclass[idx];
 
         if (need_save_) {
           NormalizedBBox out_bbox;
