@@ -1678,11 +1678,11 @@ void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
         int label = share_location ? -1 : c;
         float max_pose_score = 0;
         int pose_label = 0;
-        for (int cur_pose_label = 0; pose_label < 4; pose_label++){
-          max_pose_score = std:max(max_pose_score, pose_data[start_idx + cur_pose_label]);
+        for (int cur_pose_label = 0; pose_label < 4; pose_label++) {
+          max_pose_score = std::max(max_pose_score, pose_data[start_idx + cur_pose_label]);
           pose_label = pose_data[start_idx + cur_pose_label] > max_pose_score ? cur_pose_label : pose_label;
         }
-        label_scores[label].push_back(std:make_pair(pose_label, pose_data[start_idx + pose_label]));
+        label_scores[label].push_back(std::make_pair(pose_label, pose_data[start_idx + pose_label]));
       }
     }   
     pose_data += num_preds_per_class * num_loc_classes * 4;
@@ -1693,10 +1693,10 @@ void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
 // Explicit initialization.
 template void GetPoseConfidenceScores(const float* pose_data, const int num,
       const int num_preds_per_class, const int num_loc_classes,
-      const bool share_location, vector<map<int, vector<float> > >* pose_preds);
+      const bool share_location, vector<map<int, vector<pair<int, float> > > >* pose_preds);
 template void GetPoseConfidenceScores(const double* conf_data, const int num,
       const int num_preds_per_class, const int num_loc_classes,
-      const bool share_location, vector<map<int, vector<float> > >* pose_preds);
+      const bool share_location, vector<map<int, vector<pair<int, float> > > >* pose_preds);
 
 
 //
