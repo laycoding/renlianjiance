@@ -1,8 +1,0 @@
-src/caffe/layers/annotated_data_layer.cpp: In instantiation of ‘void caffe::AnnotatedDataLayer<Dtype>::load_batch(caffe::Batch<Dtype>*) [with Dtype = float]’:
-src/caffe/layers/annotated_data_layer.cpp:369:1:   required from here
-src/caffe/layers/annotated_data_layer.cpp:341:16: warning: variable ‘text’ set but not used [-Wunused-but-set-variable]
-       cv::Size text = cv::getTextSize(buffer, fontface, scale, thickness,
-                ^
-src/caffe/layers/annotated_data_layer.cpp: In instantiation of ‘void caffe::AnnotatedDataLayer<Dtype>::load_batch(caffe::Batch<Dtype>*) [with Dtype = double]’:
-src/caffe/layers/annotated_data_layer.cpp:369:1:   required from here
-src/caffe/layers/annotated_data_layer.cpp:341:16: warning: variable ‘text’ set but not used [-Wunused-but-set-variable]
