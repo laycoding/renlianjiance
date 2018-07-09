@@ -187,7 +187,15 @@ void DetectionOutputLayer<Dtype>::Forward_gpu(
         top_data[count * 8] = i;
         top_data[count * 8 + 1] = label;
         top_data[count * 8 + 2] = cur_conf_data[idx];
-        top_data[count * 8 + 7]  = cur_pose_data[idx];
+        //change here
+        const int pose_label = 0;
+        const float max_pose_conf = 0;
+        for (int cur_pose = 0; cur_pose < 4; cur_pose++) {
+          max_pose_conf = fmaxf(max_pose_conf, cur_pose_data[idx * 4 + cur_pose]);
+          pose_label = cur_pose_data[idx * 4 + cur_pose] > max_pose_conf ? cur_pose : pose_label;
+        }
+        //
+        top_data[count * 8 + 7]  = pose_label;
         for (int k = 0; k < 4; ++k) {
           top_data[count * 8 + 3 + k] = cur_bbox_data[idx * 4 + k];
         }

@@ -186,7 +186,7 @@ void DetectionOutputLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   // set it to (fake) 1.
   top_shape.push_back(1);
   // Each row is a 8 dimension vector, which stores
-  // [image_id, label, confidence, xmin, ymin, xmax, ymax, pose]
+  // [image_id, label, confidence, xmin, ymin, xmax, ymax, pose_label]
   top_shape.push_back(8);
   top[0]->Reshape(top_shape);
 }
@@ -276,7 +276,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   }
 
   // Retrieve all pose confidences.
-  vector<map<int, vector<float> > > all_pose_scores;
+  vector<map<int, vector<pair<int, float> > > > all_pose_scores;
   GetPoseConfidenceScores(pose_data, num, num_priors_, num_loc_classes_,
                         share_location_, &all_pose_scores);
   
@@ -394,7 +394,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
   boost::filesystem::path output_directory(output_directory_);
   for (int i = 0; i < num; ++i) {
     const map<int, vector<float> >& conf_scores = all_conf_scores[i];
-    const map<int, vector<float> >& pose_scores = all_pose_scores[i];
+    const map<int, vector<pair<int, float> > >& pose_scores = all_pose_scores[i];
     const LabelBBox& decode_bboxes = all_decode_bboxes[i];
     for (map<int, vector<int> >::iterator it = all_indices[i].begin();
          it != all_indices[i].end(); ++it) {
@@ -421,7 +421,7 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
         LOG(FATAL) << "Could not find confidence predictions for " << label;
         continue;
       }
-      const vector<float>& pose_scores4oneclass = pose_scores.find(pose_label)->second;
+      const vector<pair<int, float> >& pose_scores4oneclass = pose_scores.find(pose_label)->second;
 
       vector<int>& indices = it->second;
       if (need_save_) {
@@ -439,7 +439,8 @@ void DetectionOutputLayer<Dtype>::Forward_cpu(
         top_data[count * 8 + 4] = bbox.ymin();
         top_data[count * 8 + 5] = bbox.xmax();
         top_data[count * 8 + 6] = bbox.ymax();
-        top_data[count * 8 + 7] = pose_scores4oneclass[idx];
+        top_data[count * 8 + 7] = pose_scores4oneclass[idx].first;
+        //top_data[count * 8 + 8] = pose_scores4oneclass[idx].second;
 
         if (need_save_) {
           NormalizedBBox out_bbox;
