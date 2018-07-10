@@ -128,6 +128,7 @@ void ClipBBox(const NormalizedBBox& bbox, NormalizedBBox* clip_bbox) {
   clip_bbox->clear_size();
   clip_bbox->set_size(BBoxSize(*clip_bbox));
   clip_bbox->set_difficult(bbox.difficult());
+  clip_bbox->set_pose(bbox.pose());
 }
 
 void ClipBBox(const NormalizedBBox& bbox, const float height, const float width,
@@ -139,6 +140,7 @@ void ClipBBox(const NormalizedBBox& bbox, const float height, const float width,
   clip_bbox->clear_size();
   clip_bbox->set_size(BBoxSize(*clip_bbox));
   clip_bbox->set_difficult(bbox.difficult());
+  clip_bbox->set_pose(bbox.pose());
 }
 
 void ScaleBBox(const NormalizedBBox& bbox, const int height, const int width,
@@ -151,6 +153,7 @@ void ScaleBBox(const NormalizedBBox& bbox, const int height, const int width,
   bool normalized = !(width > 1 || height > 1);
   scale_bbox->set_size(BBoxSize(*scale_bbox, normalized));
   scale_bbox->set_difficult(bbox.difficult());
+  scale_bbox->set_pose(bbox.pose());
 }
 
 void OutputBBox(const NormalizedBBox& bbox, const pair<int, int>& img_size,
@@ -223,6 +226,8 @@ void LocateBBox(const NormalizedBBox& src_bbox, const NormalizedBBox& bbox,
   loc_bbox->set_xmax(src_bbox.xmin() + bbox.xmax() * src_width);
   loc_bbox->set_ymax(src_bbox.ymin() + bbox.ymax() * src_height);
   loc_bbox->set_difficult(bbox.difficult());
+  loc_bbox->set_pose(bbox.pose());
+
 }
 
 bool ProjectBBox(const NormalizedBBox& src_bbox, const NormalizedBBox& bbox,
@@ -238,6 +243,7 @@ bool ProjectBBox(const NormalizedBBox& src_bbox, const NormalizedBBox& bbox,
   proj_bbox->set_xmax((bbox.xmax() - src_bbox.xmin()) / src_width);
   proj_bbox->set_ymax((bbox.ymax() - src_bbox.ymin()) / src_height);
   proj_bbox->set_difficult(bbox.difficult());
+  proj_bbox->set_pose(bbox.pose());
   ClipBBox(*proj_bbox, proj_bbox);
   if (BBoxSize(*proj_bbox) > 0) {
     return true;

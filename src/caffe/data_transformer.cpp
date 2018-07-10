@@ -333,7 +333,7 @@ void DataTransformer<Dtype>::TransformAnnotation(
       if (has_valid_annotation) {
         transformed_anno_group.set_group_label(anno_group.group_label());
         transformed_anno_group_all->Add()->CopyFrom(transformed_anno_group);
-        transformed_anno_group.set_pose(anno_group.pose());
+        //transformed_anno_group.set_pose(anno_group.pose());
       }
     }
   } else {
