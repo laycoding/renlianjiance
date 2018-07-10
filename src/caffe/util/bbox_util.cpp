@@ -1678,7 +1678,14 @@ void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
         int label = share_location ? -1 : c;
         float max_pose_score = 0;
         int pose_label = 0;
-        for (int cur_pose_label = 0; pose_label < 4; pose_label++) {
+        for (int cur_pose_label = 0; pose_label < 4; ++pose_label) {
+          //LOG(INFO) << num_loc_classes;
+          LOG(INFO) << pose_data[start_idx];
+          LOG(INFO) << pose_data[start_idx + 1];
+          LOG(INFO) << pose_data[start_idx + 2];
+          LOG(INFO) << pose_data[start_idx + 3];
+          LOG(INFO) << "one down";
+          //break;
           const float cur_pose_data = pose_data[start_idx + cur_pose_label];
           max_pose_score = std::max(max_pose_score, cur_pose_data);
           pose_label = pose_data[start_idx + cur_pose_label] > max_pose_score ? cur_pose_label : pose_label;
