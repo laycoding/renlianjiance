@@ -333,6 +333,7 @@ void DataTransformer<Dtype>::TransformAnnotation(
       if (has_valid_annotation) {
         transformed_anno_group.set_group_label(anno_group.group_label());
         transformed_anno_group_all->Add()->CopyFrom(transformed_anno_group);
+        transformed_anno_group.set_pose(anno_group.pose());
       }
     }
   } else {
@@ -559,6 +560,7 @@ void DataTransformer<Dtype>::DistortImage(const Datum& datum,
     // Save the image into datum.
     EncodeCVMatToDatum(distort_img, "jpg", distort_datum);
     distort_datum->set_label(datum.label());
+    //distort_datum->set_pose(datum.pose());
     return;
 #else
     LOG(FATAL) << "Encoded datum requires OpenCV; compile with USE_OPENCV.";
