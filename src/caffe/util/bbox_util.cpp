@@ -2188,7 +2188,7 @@ void GetDetectionResults(const Dtype* det_data, const int num_det,
       map<int, map<int, vector<NormalizedBBox> > >* all_detections) {
   all_detections->clear();
   for (int i = 0; i < num_det; ++i) {
-    int start_idx = i * 7;
+    int start_idx = i * 8;
     int item_id = det_data[start_idx];
     if (item_id == -1) {
       continue;
@@ -2202,6 +2202,7 @@ void GetDetectionResults(const Dtype* det_data, const int num_det,
     bbox.set_ymin(det_data[start_idx + 4]);
     bbox.set_xmax(det_data[start_idx + 5]);
     bbox.set_ymax(det_data[start_idx + 6]);
+    bbox.set_pose(det_data[start_idx + 7]);
     float bbox_size = BBoxSize(bbox);
     bbox.set_size(bbox_size);
     (*all_detections)[item_id][label].push_back(bbox);

@@ -195,9 +195,7 @@ void DetectionOutputLayer<Dtype>::Forward_gpu(
               max_pose_conf = max_pose_conf;
           } else {
               max_pose_conf = cur_pose_data[idx + cur_pose * num_priors_];
-          }
-          LOG(INFO) << cur_pose_data[idx + cur_pose * num_priors_];
-          pose_label = cur_pose_data[idx + cur_pose * num_priors_] > max_pose_conf ? cur_pose : pose_label;
+              pose_label = cur_pose;          }
         }
         //
         top_data[count * 8 + 7]  = pose_label;

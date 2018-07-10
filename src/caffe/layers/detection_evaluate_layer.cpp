@@ -52,23 +52,25 @@ void DetectionEvaluateLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   CHECK_LE(count_, sizes_.size());
   CHECK_EQ(bottom[0]->num(), 1);
   CHECK_EQ(bottom[0]->channels(), 1);
-  CHECK_EQ(bottom[0]->width(), 7);
+  CHECK_EQ(bottom[0]->width(), 8);
   CHECK_EQ(bottom[1]->num(), 1);
   CHECK_EQ(bottom[1]->channels(), 1);
-  CHECK_EQ(bottom[1]->width(), 8);
+  CHECK_EQ(bottom[1]->width(), 9);
 
   // num() and channels() are 1.
   vector<int> top_shape(2, 1);
   int num_pos_classes = background_label_id_ == -1 ?
       num_classes_ : num_classes_ - 1;
+  // num of positive example classes
   int num_valid_det = 0;
   const Dtype* det_data = bottom[0]->cpu_data();
   for (int i = 0; i < bottom[0]->height(); ++i) {
     if (det_data[1] != -1) {
       ++num_valid_det;
     }
-    det_data += 7;
+    det_data += 8;
   }
+  //num_valid_det the sum of the number of valid detection in each image
   top_shape.push_back(num_pos_classes + num_valid_det);
   // Each row is a 5 dimension vector, which stores
   // [image_id, label, confidence, true_pos, false_pos]
