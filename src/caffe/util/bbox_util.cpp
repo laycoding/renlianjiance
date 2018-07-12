@@ -1715,7 +1715,7 @@ void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
         int label = share_location ? -1 : c;
         float max_pose_score = 0;
         int pose_label = 0;
-        for (int cur_pose_label = 0; pose_label < 4; ++pose_label) {
+        for (int cur_pose_label = 0; cur_pose_label < 4; ++cur_pose_label) {
           float cur_pose_data = pose_data[start_idx + cur_pose_label * num_loc_classes];
           if (max_pose_score > cur_pose_data) {
             max_pose_score = max_pose_score;
