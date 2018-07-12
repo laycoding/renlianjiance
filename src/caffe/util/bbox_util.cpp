@@ -1671,6 +1671,37 @@ template <typename Dtype>
 //     pose_data += num_preds_per_class * num_loc_classes * 4;
 //   }
 // }
+// void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
+//       const int num_preds_per_class, const int num_loc_classes,
+//       const bool share_location, vector<map<int, vector<pair<int, float> > > >* pose_preds) {
+//   pose_preds->clear();
+//   pose_preds->resize(num);
+//   for (int i = 0; i < num; ++i) {
+//     map<int, vector<pair<int, float> > >& label_scores = (*pose_preds)[i];
+//     for (int p = 0; p < num_preds_per_class; ++p) {
+//       int start_idx = p * num_loc_classes * 4;
+//       for (int c = 0; c < num_loc_classes; ++c) {
+//         int label = share_location ? -1 : c;
+//         float max_pose_score = 0;
+//         int pose_label = 0;
+//         for (int cur_pose_label = 0; pose_label < 4; ++pose_label) {
+//           //LOG(INFO) << num_loc_classes;
+//           LOG(INFO) << pose_data[start_idx];
+//           LOG(INFO) << pose_data[start_idx + 1];
+//           LOG(INFO) << pose_data[start_idx + 2];
+//           LOG(INFO) << pose_data[start_idx + 3];
+//           LOG(INFO) << "one down";
+//           //break;
+//           const float cur_pose_data = pose_data[start_idx + cur_pose_label * ];
+//           max_pose_score = std::max(max_pose_score, cur_pose_data);
+//           pose_label = pose_data[start_idx + cur_pose_label] > max_pose_score ? cur_pose_label : pose_label;
+//         }
+//         label_scores[label].push_back(std::make_pair(pose_label, pose_data[start_idx + pose_label]));
+//       }
+//     }   
+//     pose_data += num_preds_per_class * num_loc_classes * 4;
+//   }
+// }
 void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
       const int num_preds_per_class, const int num_loc_classes,
       const bool share_location, vector<map<int, vector<pair<int, float> > > >* pose_preds) {
@@ -1679,20 +1710,20 @@ void GetPoseConfidenceScores(const Dtype* pose_data, const int num,
   for (int i = 0; i < num; ++i) {
     map<int, vector<pair<int, float> > >& label_scores = (*pose_preds)[i];
     for (int p = 0; p < num_preds_per_class; ++p) {
-      int start_idx = p * num_loc_classes * 4;
+      int start_idx = p * num_loc_classes;
       for (int c = 0; c < num_loc_classes; ++c) {
         int label = share_location ? -1 : c;
         float max_pose_score = 0;
         int pose_label = 0;
         for (int cur_pose_label = 0; pose_label < 4; ++pose_label) {
           //LOG(INFO) << num_loc_classes;
-          LOG(INFO) << pose_data[start_idx];
-          LOG(INFO) << pose_data[start_idx + 1];
-          LOG(INFO) << pose_data[start_idx + 2];
-          LOG(INFO) << pose_data[start_idx + 3];
-          LOG(INFO) << "one down";
+          //LOG(INFO) << pose_data[start_idx];
+          //LOG(INFO) << pose_data[start_idx + 1];
+          //LOG(INFO) << pose_data[start_idx + 2];
+          //LOG(INFO) << pose_data[start_idx + 3];
+          //LOG(INFO) << "one down";
           //break;
-          const float cur_pose_data = pose_data[start_idx + cur_pose_label];
+          const float cur_pose_data = pose_data[start_idx + cur_pose_label * num_loc_classes];
           max_pose_score = std::max(max_pose_score, cur_pose_data);
           pose_label = pose_data[start_idx + cur_pose_label] > max_pose_score ? cur_pose_label : pose_label;
         }
