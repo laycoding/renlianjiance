@@ -322,6 +322,11 @@ void DataTransformer<Dtype>::TransformAnnotation(
             Dtype temp = transformed_bbox->xmin();
             transformed_bbox->set_xmin(1 - transformed_bbox->xmax());
             transformed_bbox->set_xmax(1 - temp);
+            if (transformed_bbox->pose() == 1) {
+              transformed_bbox->set_pose(2);
+            }else if (transformed_bbox->pose() == 2) {
+              transformed_bbox->set_pose(1);
+            }
           }
           if (do_resize && param_.has_resize_param()) {
             ExtrapolateBBox(param_.resize_param(), img_height, img_width,
