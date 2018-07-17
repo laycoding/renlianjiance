@@ -182,6 +182,30 @@ void CasRegFindMatches(const vector<LabelBBox>& all_loc_preds,
 int CountNumMatches(const vector<map<int, vector<int> > >& all_match_indices,
                     const int num);
 
+// // Mine the hard examples from the batch.
+// //    conf_blob: stores the confidence prediction.
+// //    all_loc_preds: stores the location prediction, where each item contains
+// //      location prediction for an image.
+// //    all_gt_bboxes: stores ground truth bboxes for the batch.
+// //    prior_bboxes: stores all the prior bboxes in the format of NormalizedBBox.
+// //    prior_variances: stores all the variances needed by prior bboxes.
+// //    all_match_overlaps: stores jaccard overlap between predictions and gt.
+// //    multibox_loss_param: stores the parameters for MultiBoxLossLayer.
+// //    all_match_indices: stores mapping between predictions and ground truth.
+// //    all_loc_loss: stores the confidence loss per location for each image.
+// template <typename Dtype>
+// void MineHardExamples(const Blob<Dtype>& conf_blob,
+//     const vector<LabelBBox>& all_loc_preds,
+//     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+//     const vector<NormalizedBBox>& prior_bboxes,
+//     const vector<vector<float> >& prior_variances,
+//     const vector<map<int, vector<float> > >& all_match_overlaps,
+//     const MultiBoxLossParameter& multibox_loss_param,
+//     int* num_matches, int* num_negs,
+//     vector<map<int, vector<int> > >* all_match_indices,
+//     vector<vector<int> >* all_neg_indices,
+// 	const Dtype* arm_conf_data);
+
 // Mine the hard examples from the batch.
 //    conf_blob: stores the confidence prediction.
 //    all_loc_preds: stores the location prediction, where each item contains
@@ -196,6 +220,7 @@ int CountNumMatches(const vector<map<int, vector<int> > >& all_match_indices,
 template <typename Dtype>
 void MineHardExamples(const Blob<Dtype>& conf_blob,
     const vector<LabelBBox>& all_loc_preds,
+    const vector<LabelBBox>& all_arm_loc_preds,
     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
     const vector<NormalizedBBox>& prior_bboxes,
     const vector<vector<float> >& prior_variances,
@@ -204,7 +229,7 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
     int* num_matches, int* num_negs,
     vector<map<int, vector<int> > >* all_match_indices,
     vector<vector<int> >* all_neg_indices,
-	const Dtype* arm_conf_data);
+  const Dtype* arm_conf_data,bool visual=false,vector<cv::Mat>* imgs=NULL);
 
 
 // Retrieve bounding box ground truth from gt_data.

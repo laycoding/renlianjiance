@@ -1001,11 +1001,232 @@ inline bool IsEligibleMining(const MiningType mining_type, const int match_idx,
   }
 }
 
+// int bgiters=0;
+// int thiscount=0;
+// template <typename Dtype>
+// void MineHardExamples(const Blob<Dtype>& conf_blob,
+//     const vector<LabelBBox>& all_loc_preds,
+//     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+//     const vector<NormalizedBBox>& prior_bboxes,
+//     const vector<vector<float> >& prior_variances,
+//     const vector<map<int, vector<float> > >& all_match_overlaps,
+//     const MultiBoxLossParameter& multibox_loss_param,
+//     int* num_matches, int* num_negs,
+//     vector<map<int, vector<int> > >* all_match_indices,
+//     vector<vector<int> >* all_neg_indices,
+// 	const Dtype* arm_conf_data) {
+//   int num = all_loc_preds.size();
+//   // CHECK_EQ(num, all_match_overlaps.size());
+//   // CHECK_EQ(num, all_match_indices->size());
+//   // all_neg_indices->clear();
+//   *num_matches = CountNumMatches(*all_match_indices, num);
+//   *num_negs = 0;
+//   int num_priors = prior_bboxes.size();
+//   CHECK_EQ(num_priors, prior_variances.size());
+//   // Get parameters.
+//   float objectness_score = multibox_loss_param.objectness_score();
+//   CHECK(multibox_loss_param.has_num_classes()) << "Must provide num_classes.";
+//   const int num_classes = multibox_loss_param.num_classes();
+//   CHECK_GE(num_classes, 1) << "num_classes should not be less than 1.";
+//   const int background_label_id = multibox_loss_param.background_label_id();
+//   const bool use_prior_for_nms = multibox_loss_param.use_prior_for_nms();
+//   const ConfLossType conf_loss_type = multibox_loss_param.conf_loss_type();
+//   const MiningType mining_type = multibox_loss_param.mining_type();
+//   if (mining_type == MultiBoxLossParameter_MiningType_NONE) {
+//     return;
+//   }
+//   const LocLossType loc_loss_type = multibox_loss_param.loc_loss_type();
+//   const float neg_pos_ratio = multibox_loss_param.neg_pos_ratio();
+//   const float neg_overlap = multibox_loss_param.neg_overlap();
+//   const CodeType code_type = multibox_loss_param.code_type();
+//   const bool encode_variance_in_target =
+//       multibox_loss_param.encode_variance_in_target();
+//   const bool has_nms_param = multibox_loss_param.has_nms_param();
+//   float nms_threshold = 0;
+//   int top_k = -1;
+//   if (has_nms_param) {
+//     nms_threshold = multibox_loss_param.nms_param().nms_threshold();
+//     top_k = multibox_loss_param.nms_param().top_k();
+//   }
+//   const int sample_size = multibox_loss_param.sample_size();
+//   // Compute confidence losses based on matching results.
+//   vector<vector<float> > all_conf_loss;
+// #ifdef CPU_ONLY
+//   ComputeConfLoss(conf_blob.cpu_data(), num, num_priors, num_classes,
+//       background_label_id, conf_loss_type, *all_match_indices, all_gt_bboxes,
+//       &all_conf_loss);
+// #else
+//   ComputeConfLossGPU(conf_blob, num, num_priors, num_classes,
+//       background_label_id, conf_loss_type, *all_match_indices, all_gt_bboxes,
+//       &all_conf_loss);
+// #endif
+//   vector<vector<float> > all_loc_loss;
+//   if (mining_type == MultiBoxLossParameter_MiningType_HARD_EXAMPLE) {
+//     // Compute localization losses based on matching results.
+//     Blob<Dtype> loc_pred, loc_gt;
+//     if (*num_matches != 0) {
+//       vector<int> loc_shape(2, 1);
+//       loc_shape[1] = *num_matches * 4;
+//       loc_pred.Reshape(loc_shape);
+//       loc_gt.Reshape(loc_shape);
+//       Dtype* loc_pred_data = loc_pred.mutable_cpu_data();
+//       Dtype* loc_gt_data = loc_gt.mutable_cpu_data();
+//       EncodeLocPrediction(all_loc_preds, all_gt_bboxes, *all_match_indices,
+//                           prior_bboxes, prior_variances, multibox_loss_param,
+//                           loc_pred_data, loc_gt_data);
+//     }
+//     ComputeLocLoss(loc_pred, loc_gt, *all_match_indices, num,
+//                    num_priors, loc_loss_type, &all_loc_loss);
+//   } else {
+//     // No localization loss.
+//     for (int i = 0; i < num; ++i) {
+//       vector<float> loc_loss(num_priors, 0.f);
+//       all_loc_loss.push_back(loc_loss);
+//     }
+//   }
+//   for (int i = 0; i < num; ++i) {
+//     map<int, vector<int> >& match_indices = (*all_match_indices)[i];
+//     const map<int, vector<float> >& match_overlaps = all_match_overlaps[i];
+//     // loc + conf loss.
+//     const vector<float>& conf_loss = all_conf_loss[i];
+//     const vector<float>& loc_loss = all_loc_loss[i];
+//     vector<float> loss;
+//     std::transform(conf_loss.begin(), conf_loss.end(), loc_loss.begin(),
+//                    std::back_inserter(loss), std::plus<float>());
+//     // Pick negatives or hard examples based on loss.
+//     set<int> sel_indices;
+//     vector<int> neg_indices;
+//     for (map<int, vector<int> >::iterator it = match_indices.begin();
+//          it != match_indices.end(); ++it) {
+//       const int label = it->first;
+//       int num_sel = 0;
+//       // Get potential indices and loss pairs.
+//       vector<pair<float, int> > loss_indices;
+//       for (int m = 0; m < match_indices[label].size(); ++m) {
+//         if (IsEligibleMining(mining_type, match_indices[label][m],
+//             match_overlaps.find(label)->second[m], neg_overlap)) {
+//           if (arm_conf_data == NULL) {
+//             loss_indices.push_back(std::make_pair(loss[m], m));
+//             ++num_sel;
+//           }
+//           else {
+//             if(arm_conf_data[i*num_priors*2+2*m+1] >= objectness_score){
+//               loss_indices.push_back(std::make_pair(loss[m], m));
+//               ++num_sel;
+//         	}
+//           }
+//         }
+//       }
+//       if (mining_type == MultiBoxLossParameter_MiningType_MAX_NEGATIVE) {
+//         int num_pos = 0;
+//         for (int m = 0; m < match_indices[label].size(); ++m) {
+//           if (match_indices[label][m] > -1) {
+//             ++num_pos;
+//           }
+//         }
+//         num_sel = std::min(static_cast<int>(num_pos * neg_pos_ratio), num_sel);
+//       } else if (mining_type == MultiBoxLossParameter_MiningType_HARD_EXAMPLE) {
+//         CHECK_GT(sample_size, 0);
+//         num_sel = std::min(sample_size, num_sel);
+//       }
+//       // Select samples.
+//       if (has_nms_param && nms_threshold > 0) {
+//         // Do nms before selecting samples.
+//         vector<float> sel_loss;
+//         vector<NormalizedBBox> sel_bboxes;
+//         if (use_prior_for_nms) {
+//           for (int m = 0; m < match_indices[label].size(); ++m) {
+//             if (IsEligibleMining(mining_type, match_indices[label][m],
+//                 match_overlaps.find(label)->second[m], neg_overlap)) {
+//               sel_loss.push_back(loss[m]);
+//               sel_bboxes.push_back(prior_bboxes[m]);
+//             }
+//           }
+//         } else {
+//           // Decode the prediction into bbox first.
+//           vector<NormalizedBBox> loc_bboxes;
+//           bool clip_bbox = false;
+//           DecodeBBoxes(prior_bboxes, prior_variances,
+//                        code_type, encode_variance_in_target, clip_bbox,
+//                        all_loc_preds[i].find(label)->second, &loc_bboxes);
+//           for (int m = 0; m < match_indices[label].size(); ++m) {
+//             if (IsEligibleMining(mining_type, match_indices[label][m],
+//                 match_overlaps.find(label)->second[m], neg_overlap)) {
+//               sel_loss.push_back(loss[m]);
+//               sel_bboxes.push_back(loc_bboxes[m]);
+//             }
+//           }
+//         }
+//         // Do non-maximum suppression based on the loss.
+//         vector<int> nms_indices;
+//         ApplyNMS(sel_bboxes, sel_loss, nms_threshold, top_k, &nms_indices);
+//         if (nms_indices.size() < num_sel) {
+//           LOG(INFO) << "not enough sample after nms: " << nms_indices.size();
+//         }
+//         // Pick top example indices after nms.
+//         num_sel = std::min(static_cast<int>(nms_indices.size()), num_sel);
+//         for (int n = 0; n < num_sel; ++n) {
+//           sel_indices.insert(loss_indices[nms_indices[n]].second);
+//         }
+//       } else {
+//         // Pick top example indices based on loss.
+//         std::sort(loss_indices.begin(), loss_indices.end(),
+//                   SortScorePairDescend<int>);
+//         for (int n = 0; n < num_sel; ++n) {
+//           sel_indices.insert(loss_indices[n].second);
+//         }
+//       }
+//       // Update the match_indices and select neg_indices.
+//       for (int m = 0; m < match_indices[label].size(); ++m) {
+//         if (match_indices[label][m] > -1) {
+//           if (mining_type == MultiBoxLossParameter_MiningType_HARD_EXAMPLE &&
+//               sel_indices.find(m) == sel_indices.end()) {
+//             match_indices[label][m] = -1;
+//             *num_matches -= 1;
+//           }
+//         } else if (match_indices[label][m] == -1) {
+//           if (sel_indices.find(m) != sel_indices.end()) {
+//             neg_indices.push_back(m);
+//             *num_negs += 1;
+//           }
+//         }
+//       }
+//     }
+//     all_neg_indices->push_back(neg_indices);
+//   }
+// }
+
+// // Explicite initialization.
+// template void MineHardExamples(const Blob<float>& conf_blob,
+//     const vector<LabelBBox>& all_loc_preds,
+//     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+//     const vector<NormalizedBBox>& prior_bboxes,
+//     const vector<vector<float> >& prior_variances,
+//     const vector<map<int, vector<float> > >& all_match_overlaps,
+//     const MultiBoxLossParameter& multibox_loss_param,
+//     int* num_matches, int* num_negs,
+//     vector<map<int, vector<int> > >* all_match_indices,
+//     vector<vector<int> >* all_neg_indices,
+// 	const float* arm_conf_data);
+// template void MineHardExamples(const Blob<double>& conf_blob,
+//     const vector<LabelBBox>& all_loc_preds,
+//     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
+//     const vector<NormalizedBBox>& prior_bboxes,
+//     const vector<vector<float> >& prior_variances,
+//     const vector<map<int, vector<float> > >& all_match_overlaps,
+//     const MultiBoxLossParameter& multibox_loss_param,
+//     int* num_matches, int* num_negs,
+//     vector<map<int, vector<int> > >* all_match_indices,
+//     vector<vector<int> >* all_neg_indices,
+// 	const double* arm_conf_data);
+
+
 int bgiters=0;
 int thiscount=0;
 template <typename Dtype>
 void MineHardExamples(const Blob<Dtype>& conf_blob,
     const vector<LabelBBox>& all_loc_preds,
+    const vector<LabelBBox>& all_arm_loc_preds,
     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
     const vector<NormalizedBBox>& prior_bboxes,
     const vector<vector<float> >& prior_variances,
@@ -1014,7 +1235,7 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
     int* num_matches, int* num_negs,
     vector<map<int, vector<int> > >* all_match_indices,
     vector<vector<int> >* all_neg_indices,
-	const Dtype* arm_conf_data) {
+  const Dtype* arm_conf_data,bool visual,vector<cv::Mat>* imgs) {
   int num = all_loc_preds.size();
   // CHECK_EQ(num, all_match_overlaps.size());
   // CHECK_EQ(num, all_match_indices->size());
@@ -1044,21 +1265,24 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
   const bool has_nms_param = multibox_loss_param.has_nms_param();
   float nms_threshold = 0;
   int top_k = -1;
+  float eta = 1.0;
   if (has_nms_param) {
     nms_threshold = multibox_loss_param.nms_param().nms_threshold();
     top_k = multibox_loss_param.nms_param().top_k();
+    eta = multibox_loss_param.nms_param().eta();
   }
   const int sample_size = multibox_loss_param.sample_size();
   // Compute confidence losses based on matching results.
-  vector<vector<float> > all_conf_loss;
+  vector<vector<float> > all_conf_loss;//返回背影的损失
+  vector<vector<float> > all_bg_conf;//返回所在类别的最大置信度，若有在类别为0，则是设为0
 #ifdef CPU_ONLY
   ComputeConfLoss(conf_blob.cpu_data(), num, num_priors, num_classes,
       background_label_id, conf_loss_type, *all_match_indices, all_gt_bboxes,
-      &all_conf_loss);
+      &all_conf_loss);//每一个预义框对应的类别置信度损失值
 #else
   ComputeConfLossGPU(conf_blob, num, num_priors, num_classes,
       background_label_id, conf_loss_type, *all_match_indices, all_gt_bboxes,
-      &all_conf_loss);
+      &all_conf_loss);//每一个预义框对应的类别置信度损失值
 #endif
   vector<vector<float> > all_loc_loss;
   if (mining_type == MultiBoxLossParameter_MiningType_HARD_EXAMPLE) {
@@ -1084,6 +1308,7 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
       all_loc_loss.push_back(loc_loss);
     }
   }
+ // LOG(INFO)<<"NUM: "<<num;
   for (int i = 0; i < num; ++i) {
     map<int, vector<int> >& match_indices = (*all_match_indices)[i];
     const map<int, vector<float> >& match_overlaps = all_match_overlaps[i];
@@ -1096,6 +1321,85 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
     // Pick negatives or hard examples based on loss.
     set<int> sel_indices;
     vector<int> neg_indices;
+    //如果为无标签的负样本图像
+    if(0==match_indices.size()&&arm_conf_data != NULL)
+    {
+      const vector<NormalizedBBox>& arm_loc_preds = all_arm_loc_preds[i].find(-1)->second;
+      vector<NormalizedBBox> decode_prior_bboxes;
+      bool clip_bbox = false;
+      DecodeBBoxes(prior_bboxes, prior_variances,
+        code_type, false, clip_bbox,
+      arm_loc_preds, &decode_prior_bboxes);
+      const vector<NormalizedBBox>& label_loc_preds = all_loc_preds[i].find(-1)->second;
+      vector<NormalizedBBox> loc_bboxes;
+      DecodeBBoxes(decode_prior_bboxes, prior_variances,
+                   code_type, false, clip_bbox,
+                   label_loc_preds, &(loc_bboxes));
+      //LOG(INFO)<<"NO LABEL";
+      int num_sel = 0;
+      // Get potential indices and loss pairs.
+      vector<pair<float, int> > loss_indices;
+      for (int m = 0; m < num_priors; ++m) {
+        //返回ODM网络的无label样本中高置信度负样本
+          if(arm_conf_data[i*num_priors*2+2*m+1] >= objectness_score&&std::exp(-loss[m])<1-nms_threshold){
+              loss_indices.push_back(std::make_pair(1.0-std::exp(-loss[m]), m));
+              ++num_sel;
+        }
+      }
+
+      vector<float> sel_confs;
+      vector<NormalizedBBox> sel_bboxes;
+      for (int m = 0; m < loss_indices.size(); ++m) {
+          sel_confs.push_back(loss_indices[m].first);
+          sel_bboxes.push_back(loc_bboxes[loss_indices[m].second]);
+      }
+      // Do non-maximum suppression based on the loss.
+      vector<int> nms_indices;
+      ApplyNMSFast(sel_bboxes, sel_confs, nms_threshold, nms_threshold, eta,
+          top_k, &nms_indices);
+      num_sel = std::min(static_cast<int>(nms_indices.size()), num_sel);
+      if(visual)
+      {
+       cv::Mat img=imgs->at(i);
+       char fileName1[1000];
+       char confbuffer[20];
+       int fontface = cv::FONT_HERSHEY_SIMPLEX;
+       double scale = 1;
+       int thickness = 2;
+       int baseline = 0;
+       char buffer[50];
+       sprintf(fileName1, "data/Face2018_Wider/bgselectimg/%d.jpg",bgiters);
+       for(int kk=0;kk<num_sel;kk++)
+       {
+        cv::Point top_left_pt(sel_bboxes[nms_indices[kk]].xmin(), sel_bboxes[nms_indices[kk]].ymin());
+        cv::Point bottom_right_pt(sel_bboxes[nms_indices[kk]].xmax(), sel_bboxes[nms_indices[kk]].ymax());
+        cv::Rect rectroi(sel_bboxes[nms_indices[kk]].xmin()*512,sel_bboxes[nms_indices[kk]].ymin()*512,(sel_bboxes[nms_indices[kk]].xmax()-sel_bboxes[nms_indices[kk]].xmin())*512,(sel_bboxes[nms_indices[kk]].ymax()-sel_bboxes[nms_indices[kk]].ymin())*512);
+        cv::rectangle(img, rectroi.tl(), rectroi.br(), cv::Scalar(0,255,0), 4);
+        sprintf(confbuffer, "%.3f", sel_confs[nms_indices[kk]]);
+        cv::Point bottom_left_pt(sel_bboxes[nms_indices[kk]].xmin()*512, sel_bboxes[nms_indices[kk]].ymax()*512);
+        cv::Size text = cv::getTextSize(confbuffer, fontface, scale, thickness,
+                                        &baseline);
+        cv::rectangle(
+                 img, bottom_left_pt + cv::Point(0, 0),
+                 bottom_left_pt + cv::Point(text.width, -text.height-baseline),
+                 CV_RGB(0,255,0), CV_FILLED);
+            cv::putText(img, confbuffer, bottom_left_pt - cv::Point(0, baseline),
+                      fontface, scale, CV_RGB(255, 0, 0), thickness, 8);
+
+
+        }
+        cv::imwrite(fileName1,img);
+        bgiters++;
+      }
+      // Pick top example indices after nms.
+      //LOG(INFO) <<"total priox: "<<num_priors<<" sel_bboxes:"<<sel_bboxes.size()<<" top_k:"<<top_k<<" nms_indices:"<<num_sel;
+      for (int n = 0; n < num_sel; ++n) {
+        // Update select neg_indices.
+        neg_indices.push_back(loss_indices[nms_indices[n]].second);
+        *num_negs += 1;
+      }
+      //LOG(INFO) <<"num_negs:"<<num_sel;
+    }else{
     for (map<int, vector<int> >::iterator it = match_indices.begin();
          it != match_indices.end(); ++it) {
       const int label = it->first;
@@ -1113,7 +1417,7 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
             if(arm_conf_data[i*num_priors*2+2*m+1] >= objectness_score){
               loss_indices.push_back(std::make_pair(loss[m], m));
               ++num_sel;
-        	}
+          }
           }
         }
       }
@@ -1130,7 +1434,7 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
         num_sel = std::min(sample_size, num_sel);
       }
       // Select samples.
-      if (has_nms_param && nms_threshold > 0) {
+      if(0) {  //has_nms_param && nms_threshold > 0) {
         // Do nms before selecting samples.
         vector<float> sel_loss;
         vector<NormalizedBBox> sel_bboxes;
@@ -1192,13 +1496,16 @@ void MineHardExamples(const Blob<Dtype>& conf_blob,
         }
       }
     }
-    all_neg_indices->push_back(neg_indices);
   }
+  all_neg_indices->push_back(neg_indices);
+  }
+ thiscount++;
 }
 
 // Explicite initialization.
 template void MineHardExamples(const Blob<float>& conf_blob,
     const vector<LabelBBox>& all_loc_preds,
+    const vector<LabelBBox>& all_arm_loc_preds,
     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
     const vector<NormalizedBBox>& prior_bboxes,
     const vector<vector<float> >& prior_variances,
@@ -1207,9 +1514,10 @@ template void MineHardExamples(const Blob<float>& conf_blob,
     int* num_matches, int* num_negs,
     vector<map<int, vector<int> > >* all_match_indices,
     vector<vector<int> >* all_neg_indices,
-	const float* arm_conf_data);
+  const float* arm_conf_data,bool visual,vector<cv::Mat>* imgs);
 template void MineHardExamples(const Blob<double>& conf_blob,
     const vector<LabelBBox>& all_loc_preds,
+    const vector<LabelBBox>& all_arm_loc_preds,
     const map<int, vector<NormalizedBBox> >& all_gt_bboxes,
     const vector<NormalizedBBox>& prior_bboxes,
     const vector<vector<float> >& prior_variances,
@@ -1218,8 +1526,7 @@ template void MineHardExamples(const Blob<double>& conf_blob,
     int* num_matches, int* num_negs,
     vector<map<int, vector<int> > >* all_match_indices,
     vector<vector<int> >* all_neg_indices,
-	const double* arm_conf_data);
-    
+  const double* arm_conf_data,bool visual,vector<cv::Mat>* imgs);
     
     
 template <typename Dtype>
