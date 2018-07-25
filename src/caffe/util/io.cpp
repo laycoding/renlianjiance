@@ -283,6 +283,7 @@ bool ReadXMLToAnnotatedDatum(const string& labelfile, const int img_height,
     if (v1.first == "object") {
       Annotation* anno = NULL;
       bool difficult = false;
+      int pose = 0;
       ptree object = v1.second;
       BOOST_FOREACH(ptree::value_type &v2, object.get_child("")) {
         ptree pt2 = v2.second;
@@ -317,6 +318,8 @@ bool ReadXMLToAnnotatedDatum(const string& labelfile, const int img_height,
           anno->set_instance_id(instance_id++);
         } else if (v2.first == "difficult") {
           difficult = pt2.data() == "1";
+        } else if (v2.first == "pose") {
+          pose = object.get("pose", 0);
         } else if (v2.first == "bndbox") {
           int xmin = pt2.get("xmin", 0);
           int ymin = pt2.get("ymin", 0);
@@ -350,6 +353,7 @@ bool ReadXMLToAnnotatedDatum(const string& labelfile, const int img_height,
           bbox->set_xmax(static_cast<float>(xmax) / width);
           bbox->set_ymax(static_cast<float>(ymax) / height);
           bbox->set_difficult(difficult);
+          bbox->set_pose(pose);
         }
       }
     }
@@ -652,7 +656,11 @@ cv::Mat DecodeDatumToCVMatNative(const Datum& datum) {
   CHECK(datum.encoded()) << "Datum not encoded";
   const string& data = datum.data();
   std::vector<char> vec_data(data.c_str(), data.c_str() + data.size());
+        LOG(INFO) << "imdecode start";
+  cv_img = cv::imdecode(vec_data, CV_LOAD_IMAGE_COLOR);
+    LOG(INFO) << "imdecode succss using color";
   cv_img = cv::imdecode(vec_data, -1);
+    LOG(INFO) << "imdecode succuss";
   if (!cv_img.data) {
     LOG(ERROR) << "Could not decode datum ";
   }
@@ -661,6 +669,7 @@ cv::Mat DecodeDatumToCVMatNative(const Datum& datum) {
 cv::Mat DecodeDatumToCVMat(const Datum& datum, bool is_color) {
   cv::Mat cv_img;
   CHECK(datum.encoded()) << "Datum not encoded";
+  LOG(INFO) << "before init data";
   const string& data = datum.data();
   std::vector<char> vec_data(data.c_str(), data.c_str() + data.size());
   int cv_read_flag = (is_color ? CV_LOAD_IMAGE_COLOR :
