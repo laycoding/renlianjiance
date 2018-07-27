@@ -656,11 +656,8 @@ cv::Mat DecodeDatumToCVMatNative(const Datum& datum) {
   CHECK(datum.encoded()) << "Datum not encoded";
   const string& data = datum.data();
   std::vector<char> vec_data(data.c_str(), data.c_str() + data.size());
-        LOG(INFO) << "imdecode start";
   cv_img = cv::imdecode(vec_data, CV_LOAD_IMAGE_COLOR);
-    LOG(INFO) << "imdecode succss using color";
   cv_img = cv::imdecode(vec_data, -1);
-    LOG(INFO) << "imdecode succuss";
   if (!cv_img.data) {
     LOG(ERROR) << "Could not decode datum ";
   }
